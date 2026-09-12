@@ -1,6 +1,5 @@
 import numpy as np
 import polars as pl
-import torch
 
 from flyhigh.data.connectome import Connectome
 

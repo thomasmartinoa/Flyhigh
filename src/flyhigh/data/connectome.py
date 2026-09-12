@@ -8,7 +8,6 @@ Built from the three FlyEM "flat connectome" tables (see `flyhigh.data.download`
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -110,7 +109,7 @@ class Connectome:
         return self.edges.height
 
     def describe(self) -> dict:
-        by = lambda col: dict(self.neurons.group_by(col).len().sort(col).iter_rows())  # noqa: E731
+        by = lambda col: dict(self.neurons.group_by(col).len().sort(col).iter_rows())
         return {
             "n_neurons": self.n_neurons,
             "n_edges": self.n_edges,

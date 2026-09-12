@@ -39,7 +39,7 @@ Downloaded by `python -m flyhigh.data.download` into `data/raw/` from
 
 | File | Rows | What we take from it |
 |---|---|---|
-| `body-annotations-…feather` (14 MB) | 211,577 segments | `status == "Traced"` → neurons; `type`, `superclass`, `class`, `somaSide`, `dimorphism`, eye column `assignedOlHex1/2` |
+| `body-annotations-…feather` (14 MB) | 211,577 segments | `status == "Traced"` → neurons; `type`, `superclass`, `class`, `somaSide`, `dimorphism`, eye column `assignedOlHex1/2` (on columnar lamina/medulla neurons such as L1/L2/Tm1, ≈ 880 columns per eye) |
 | `body-neurotransmitters-…feather` (43 MB) | 1.8 M segments | `consensus_nt` (fallback `celltype_predicted_nt`) → sign |
 | `connectome-weights-…feather` (1.05 GB) | 152 M segment pairs | `body_pre, body_post, weight` (= synapse count) |
 

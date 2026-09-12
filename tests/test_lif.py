@@ -199,7 +199,7 @@ def test_std_event_and_spmv_kernels_agree(device):
 
 
 def test_male_cns_preset_exempts_sensory_neurons_from_depression():
-    from flyhigh.brain.lif import MALE_CNS_W_SYN, MALE_CNS_STD_U
+    from flyhigh.brain.lif import MALE_CNS_STD_U, MALE_CNS_W_SYN
     c = make_connectome(3, [(0, 1, 10), (1, 2, 10)])
     c.neurons = c.neurons.with_columns(pl.Series("superclass", ["cb_sensory", "cb_intrinsic", "cb_motor"]))
     brain = LIFBrain.for_male_cns(c, device="cpu")

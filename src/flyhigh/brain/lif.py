@@ -50,7 +50,7 @@ MALE_CNS_STD_TAU_MS = 300.0
 
 class LIFBrain:
     @classmethod
-    def for_male_cns(cls, connectome: Connectome, n_agents: int = 1, device="cuda", **kw) -> "LIFBrain":
+    def for_male_cns(cls, connectome: Connectome, n_agents: int = 1, device="cuda", **kw) -> LIFBrain:
         sensory = connectome.neurons.filter(
             connectome.neurons["superclass"].str.contains("sensory").fill_null(False)
         )["index"].to_numpy().copy()
@@ -64,7 +64,7 @@ class LIFBrain:
         self,
         connectome: Connectome,
         n_agents: int = 1,
-        params: ShiuParams = ShiuParams(),
+        params: ShiuParams | None = None,
         device: str | torch.device = "cuda",
         propagation: str = "event",
         std_u: float = 0.0,
@@ -74,7 +74,7 @@ class LIFBrain:
         """propagation: "event" gathers only the out-edges of neurons that spiked (fast when
         <1% of neurons fire per step, which is the norm); "spmv" is a full sparse matmul."""
         self.connectome = connectome
-        self.p = params
+        self.p = params = params or ShiuParams()
         self.n_agents = n_agents
         self.n_neurons = connectome.n_neurons
         self.device = torch.device(device)
@@ -158,7 +158,7 @@ class LIFBrain:
             self._val[mask[pre_of_edge]] = 0.0
         else:
             W = self.W.to_sparse_coo().coalesce()
-            post, pre = W.indices()
+            pre = W.indices()[1]
             keep = ~mask[pre]
             self.W = torch.sparse_coo_tensor(
                 W.indices()[:, keep], W.values()[keep], W.shape

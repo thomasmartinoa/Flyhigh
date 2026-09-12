@@ -53,7 +53,7 @@ def _stream(url: str, dest: Path, size: int) -> None:
 def _verify_opens(path: Path) -> None:
     """Read only the Arrow schema (no data) to check the file is a valid Feather table."""
     with pa.memory_map(str(path)) as source:
-        pa.ipc.open_file(source).schema
+        _ = pa.ipc.open_file(source).schema
 
 
 def download_all(dest: str | Path = "data/raw", only: list[str] | None = None) -> list[Path]:

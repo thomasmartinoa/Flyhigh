@@ -1,5 +1,5 @@
-import pyarrow.feather as feather
 import polars as pl
+from pyarrow import feather
 
 from flyhigh.data import download
 
