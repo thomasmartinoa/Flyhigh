@@ -1,0 +1,146 @@
+"""Batched leaky integrate-and-fire brain on the male-CNS connectome.
+
+Neuron model (Shiu et al. 2024, Nature; Brian2 "linear" method), per neuron:
+
+    dv/dt = (v_rest - v + g) / t_mbr     (frozen while refractory)
+    dg/dt = -g / tau                      (frozen while refractory)
+    spike when v >= v_th  ->  v = v_reset, refractory for t_rfc
+    presynaptic spike     ->  g[post] += w_syn * signed_synapse_count   (after delay t_dly)
+
+The batch dimension is the *agent*: every agent gets its own membrane state but the
+same wiring, so one sparse matmul propagates spikes for all agents at once.
+Voltages are in mV and time in ms throughout.
+"""
+
+from __future__ import annotations
+
+import math
+from dataclasses import dataclass
+
+import torch
+
+from flyhigh.data.connectome import Connectome
+
+
+@dataclass(frozen=True)
+class ShiuParams:
+    v_rest_mv: float = -52.0
+    v_reset_mv: float = -52.0
+    v_th_mv: float = -45.0
+    t_mbr_ms: float = 20.0  # membrane time constant
+    tau_ms: float = 5.0  # synaptic time constant
+    t_rfc_ms: float = 2.2  # refractory period
+    t_dly_ms: float = 1.8  # synaptic delay
+    w_syn_mv: float = 0.275  # jump in g per synapse
+    dt_ms: float = 0.1
+
+
+class LIFBrain:
+    def __init__(
+        self,
+        connectome: Connectome,
+        n_agents: int = 1,
+        params: ShiuParams = ShiuParams(),
+        device: str | torch.device = "cuda",
+        propagation: str = "event",
+    ):
+        """propagation: "event" gathers only the out-edges of neurons that spiked (fast when
+        <1% of neurons fire per step, which is the norm); "spmv" is a full sparse matmul."""
+        self.connectome = connectome
+        self.p = params
+        self.n_agents = n_agents
+        self.n_neurons = connectome.n_neurons
+        self.device = torch.device(device)
+        self.delay_steps = max(1, round(params.t_dly_ms / params.dt_ms))
+        self.rfc_steps = round(params.t_rfc_ms / params.dt_ms)
+
+        # Edge weights already carry the NT sign; scale by w_syn here.
+        self.propagation = propagation
+        if propagation == "event":
+            # CSR indexed by *pre* neuron so a spike's out-edges are one contiguous run.
+            e = connectome.edges.sort("pre_idx", "post_idx")
+            pre = torch.from_numpy(e["pre_idx"].to_numpy().copy())
+            counts = torch.bincount(pre, minlength=self.n_neurons)
+            self._rowptr = torch.cat([torch.zeros(1, dtype=torch.int64), counts.cumsum(0)]).to(self.device)
+            self._col = torch.from_numpy(e["post_idx"].to_numpy().copy()).to(self.device)
+            self._val = (torch.from_numpy(e["weight"].to_numpy().copy()).float() * params.w_syn_mv).to(self.device)
+            self._propagate = self._propagate_event
+        elif propagation == "spmv":
+            self.W = connectome.to_sparse(device=self.device) * params.w_syn_mv  # W[post, pre]
+            self._propagate = self._propagate_spmv
+        else:
+            raise ValueError(f"unknown propagation {propagation!r}")
+
+        # Exact integration constants for the linear ODE pair over one step.
+        dt, tm, tau = params.dt_ms, params.t_mbr_ms, params.tau_ms
+        self._a = math.exp(-dt / tm)  # membrane decay
+        self._b = math.exp(-dt / tau)  # synaptic decay
+        self._c = tau / (tau - tm) * (self._b - self._a)  # g -> v coupling
+
+        A, N = n_agents, self.n_neurons
+        self.v = torch.full((A, N), params.v_rest_mv, device=self.device)
+        self.g = torch.zeros((A, N), device=self.device)
+        self.refractory_left = torch.zeros((A, N), dtype=torch.int32, device=self.device)
+        self._spike_ring = torch.zeros((self.delay_steps, A, N), device=self.device)
+        self._ring_pos = 0
+        self.step_count = 0
+
+    def _propagate_spmv(self, arriving: torch.Tensor) -> None:
+        self.g += (self.W @ arriving.T).T
+
+    def _propagate_event(self, arriving: torch.Tensor) -> None:
+        agent, pre = arriving.nonzero(as_tuple=True)
+        if pre.numel() == 0:
+            return
+        starts = self._rowptr[pre]
+        lengths = self._rowptr[pre + 1] - starts
+        total = int(lengths.sum())
+        if total == 0:
+            return
+        # flat edge indices: for each spiking pre, the run starts[i] .. starts[i]+lengths[i]
+        seg_offsets = torch.cumsum(lengths, 0) - lengths
+        pos = torch.arange(total, device=self.device)
+        seg = torch.repeat_interleave(torch.arange(pre.numel(), device=self.device), lengths)
+        edge = starts[seg] + (pos - seg_offsets[seg])
+        flat_target = agent[seg] * self.n_neurons + self._col[edge]
+        self.g.view(-1).index_add_(0, flat_target, self._val[edge])
+
+    @property
+    def t_ms(self) -> float:
+        return self.step_count * self.p.dt_ms
+
+    def step(self, ext_i: torch.Tensor | None = None, ext_v: torch.Tensor | None = None) -> torch.Tensor:
+        """Advance one time step.
+
+        ext_i: (A, N) graded drive in mV — a constant input current expressed as the
+               steady-state depolarisation it would produce (used for sensory currents).
+        ext_v: (A, N) instantaneous jump in v (used for optogenetic-style Poisson kicks).
+        Returns the (A, N) bool tensor of neurons that spiked this step.
+        """
+        p = self.p
+        # 1. integrate everything that is not refractory (Brian2 order: state update,
+        #    threshold/reset, then synaptic delivery — so arriving spikes land after decay)
+        active = self.refractory_left == 0
+        v_new = p.v_rest_mv + (self.v - p.v_rest_mv) * self._a + self.g * self._c
+        if ext_i is not None:
+            v_new = v_new + ext_i * (1.0 - self._a)
+        self.v = torch.where(active, v_new, self.v)
+        self.g = torch.where(active, self.g * self._b, self.g)
+        if ext_v is not None:
+            self.v = self.v + ext_v
+        self.refractory_left = torch.clamp(self.refractory_left - 1, min=0)
+
+        # 2. threshold, reset, refractory
+        spiked = self.v >= p.v_th_mv
+        self.v = torch.where(spiked, torch.full_like(self.v, p.v_reset_mv), self.v)
+        self.refractory_left = torch.where(
+            spiked, torch.full_like(self.refractory_left, self.rfc_steps), self.refractory_left
+        )
+
+        # 3. deliver the spikes emitted `delay_steps` ago, then queue this step's spikes
+        #    in the slot they just vacated
+        self._propagate(self._spike_ring[self._ring_pos])
+        self._spike_ring[self._ring_pos] = spiked.to(self._spike_ring.dtype)
+        self._ring_pos = (self._ring_pos + 1) % self.delay_steps
+        self.step_count += 1
+        return spiked
