@@ -1,0 +1,41 @@
+[project]
+name = "flyhigh"
+version = "0.1.0"
+description = "Connectome-driven fly brain simulation: male Drosophila CNS -> LIF brain -> simulated / real flying agents"
+authors = [{ name = "Martin Thomas" }]
+requires-python = ">=3.13,<3.14"
+license = "MIT"
+dependencies = [
+    "torch>=2.9",
+    "polars>=1.30",
+    "pyarrow>=18",
+    "numpy>=2",
+    "scipy>=1.14",
+    "matplotlib>=3.9",
+    "tqdm>=4.66",
+    "requests>=2.32",
+]
+
+[project.optional-dependencies]
+neuprint = ["neuprint-python>=0.6"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "jupyterlab>=4",
+    "nbconvert>=7",
+    "ipykernel>=6",
+    "ruff>=0.8",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["data: needs the real male-CNS tables in data/raw (skipped otherwise)"]
+filterwarnings = ["ignore:Sparse CSR tensor support is in beta state:UserWarning"]
+
+[tool.ruff]
+line-length = 100
+
+[build-system]
+requires = ["uv_build>=0.12.13,<0.13.0"]
+build-backend = "uv_build"

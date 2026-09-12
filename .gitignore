@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+data/raw/
+data/cache/
+data/runs/
+.ipynb_checkpoints/
+Research_paper/*.pdf
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
