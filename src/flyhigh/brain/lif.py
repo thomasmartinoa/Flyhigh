@@ -4,7 +4,7 @@ Neuron model (Shiu et al. 2024, Nature; Brian2 "linear" method), per neuron:
 
     dv/dt = (v_rest - v + g) / t_mbr     (frozen while refractory)
     dg/dt = -g / tau                      (frozen while refractory)
-    spike when v >= v_th  ->  v = v_reset, refractory for t_rfc
+    spike when v > v_th   ->  v = v_reset, g = 0 (input discarded), refractory for t_rfc
     presynaptic spike     ->  g[post] += w_syn * signed_synapse_count   (after delay t_dly)
 
 The batch dimension is the *agent*: every agent gets its own membrane state but the
@@ -81,6 +81,7 @@ class LIFBrain:
         self.v = torch.full((A, N), params.v_rest_mv, device=self.device)
         self.g = torch.zeros((A, N), device=self.device)
         self.refractory_left = torch.zeros((A, N), dtype=torch.int32, device=self.device)
+        self._rfc_steps_per_neuron = torch.full((N,), self.rfc_steps, dtype=torch.int32, device=self.device)
         self._spike_ring = torch.zeros((self.delay_steps, A, N), device=self.device)
         self._ring_pos = 0
         self.step_count = 0
@@ -104,6 +105,46 @@ class LIFBrain:
         edge = starts[seg] + (pos - seg_offsets[seg])
         flat_target = agent[seg] * self.n_neurons + self._col[edge]
         self.g.view(-1).index_add_(0, flat_target, self._val[edge])
+
+    def set_refractory(self, neuron_idx, t_rfc_ms: float) -> None:
+        """Per-neuron refractory period (Shiu: 0 ms for optogenetically activated neurons)."""
+        idx = torch.as_tensor(neuron_idx, dtype=torch.int64, device=self.device)
+        self._rfc_steps_per_neuron[idx] = round(t_rfc_ms / self.p.dt_ms)
+
+    def silence(self, neuron_idx) -> None:
+        """Zero all *outgoing* synapses of these neurons (Shiu's silence(): the neuron may
+        still spike, but it no longer influences anyone)."""
+        idx = torch.as_tensor(neuron_idx, dtype=torch.int64, device=self.device)
+        mask = torch.zeros(self.n_neurons, dtype=torch.bool, device=self.device)
+        mask[idx] = True
+        if self.propagation == "event":
+            pre_of_edge = torch.repeat_interleave(
+                torch.arange(self.n_neurons, device=self.device), self._rowptr[1:] - self._rowptr[:-1]
+            )
+            self._val[mask[pre_of_edge]] = 0.0
+        else:
+            W = self.W.to_sparse_coo().coalesce()
+            post, pre = W.indices()
+            keep = ~mask[pre]
+            self.W = torch.sparse_coo_tensor(
+                W.indices()[:, keep], W.values()[keep], W.shape
+            ).coalesce().to_sparse_csr()
+
+    def run(self, n_steps: int, stimuli=(), recorder=None, ext_i: torch.Tensor | None = None):
+        """Step the brain `n_steps` times with Poisson activations and/or a constant drive.
+        Returns the recorder (a fresh `SpikeRecorder` if none was given)."""
+        from flyhigh.brain.recorder import SpikeRecorder
+
+        recorder = recorder or SpikeRecorder(neuron_idx=[])
+        for s in stimuli:
+            s.attach(self)
+        for _ in range(n_steps):
+            ext_v = None
+            for s in stimuli:
+                v = s.ext_v(self)
+                ext_v = v if ext_v is None else ext_v + v
+            recorder.record(self, self.step(ext_i=ext_i, ext_v=ext_v))
+        return recorder
 
     @property
     def t_ms(self) -> float:
@@ -130,11 +171,12 @@ class LIFBrain:
             self.v = self.v + ext_v
         self.refractory_left = torch.clamp(self.refractory_left - 1, min=0)
 
-        # 2. threshold, reset, refractory
-        spiked = self.v >= p.v_th_mv
+        # 2. threshold, reset (v AND g — Shiu's reset rule 'v = v_rst; g = 0'), refractory
+        spiked = self.v > p.v_th_mv
         self.v = torch.where(spiked, torch.full_like(self.v, p.v_reset_mv), self.v)
+        self.g = torch.where(spiked, torch.zeros_like(self.g), self.g)
         self.refractory_left = torch.where(
-            spiked, torch.full_like(self.refractory_left, self.rfc_steps), self.refractory_left
+            spiked, self._rfc_steps_per_neuron.expand_as(spiked), self.refractory_left
         )
 
         # 3. deliver the spikes emitted `delay_steps` ago, then queue this step's spikes

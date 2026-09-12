@@ -86,3 +86,12 @@ def test_describe_counts(raw_dir):
     d = Connectome.load(raw_dir, cache=False).describe()
     assert d["n_neurons"] == 5 and d["n_edges"] == 5 and d["n_synapses"] == 28
     assert d["by_region"]["brain"] == 3 and d["by_region"]["optic"] == 2
+
+
+def test_drop_edges_between_removes_only_those_edges(raw_dir):
+    c = Connectome.load(raw_dir, cache=False)
+    pruned = c.drop_edges_between(pre=[0, 2], post=[1])  # LB3a->MN9 and GNG042->MN9
+    assert pruned.n_edges == c.n_edges - 2
+    assert pruned.n_neurons == c.n_neurons
+    W = pruned.to_sparse(device="cpu").to_dense()
+    assert W[1, 0] == 0 and W[1, 2] == 0 and W[0, 1] == 1 and W[3, 4] == -5

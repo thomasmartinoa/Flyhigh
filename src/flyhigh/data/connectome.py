@@ -153,6 +153,13 @@ class Connectome:
         neurons = keep.with_columns(pl.Series("index", np.arange(keep.height, dtype=np.int64)))
         return Connectome(neurons, edges)
 
+    def drop_edges_between(self, pre, post) -> Connectome:
+        """Copy without the edges going from any of `pre` to any of `post` (dense indices)."""
+        pre_s = pl.Series(list(pre), dtype=pl.Int64)
+        post_s = pl.Series(list(post), dtype=pl.Int64)
+        drop = pl.col("pre_idx").is_in(pre_s.implode()) & pl.col("post_idx").is_in(post_s.implode())
+        return Connectome(self.neurons, self.edges.filter(~drop))
+
     def to_sparse(self, device="cpu", dtype=torch.float32) -> torch.Tensor:
         """Sparse CSR W with W[post, pre] = signed synapse count, so g += W @ spikes."""
         post = torch.from_numpy(self.edges["post_idx"].to_numpy().copy())

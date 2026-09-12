@@ -122,3 +122,29 @@ def test_event_driven_propagation_matches_spmv(device):
         assert torch.equal(s1, s2)
         assert torch.allclose(spmv.g, event.g, atol=1e-4)
     assert spmv.v.abs().sum() > 0 and (s1.sum() > 0 or spmv.g.abs().sum() > 0)
+
+
+def test_spike_resets_synaptic_input_g_to_zero():
+    """Shiu et al. reset rule: 'v = v_rst; g = 0' — a spike discards accumulated input."""
+    brain = LIFBrain(make_connectome(2, [(0, 1, 300)]), device="cpu")
+    kick = torch.zeros(1, 2); kick[0, 0] = 100.0
+    brain.step(ext_v=kick)
+    for _ in range(brain.delay_steps):
+        brain.step()
+    assert brain.g[0, 1].item() > 0  # 300 synapses arrived: g = 82.5 mV (peak v ≈ 13 mV)
+    for _ in range(100):  # neuron 1 charges up and spikes within a few ms
+        spiked = brain.step()
+        if spiked[0, 1]:
+            break
+    assert spiked[0, 1]
+    assert brain.g[0, 1].item() == 0.0
+
+
+def test_silence_only_removes_outgoing_synapses():
+    """Shiu's silence(): the neuron still spikes, but nobody hears it."""
+    from flyhigh.brain.recorder import SpikeRecorder
+    c = make_connectome(3, [(0, 1, 200), (1, 2, 200)])
+    drive = torch.zeros(1, 3); drive[0, 0] = 30.0
+    cut = LIFBrain(c, device="cpu"); cut.silence([1])
+    rec = cut.run(3_000, ext_i=drive, recorder=SpikeRecorder())
+    assert rec.counts[0, 0] > 0 and rec.counts[0, 1] > 0 and rec.counts[0, 2] == 0
