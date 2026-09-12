@@ -148,3 +148,60 @@ def test_silence_only_removes_outgoing_synapses():
     cut = LIFBrain(c, device="cpu"); cut.silence([1])
     rec = cut.run(3_000, ext_i=drive, recorder=SpikeRecorder())
     assert rec.counts[0, 0] > 0 and rec.counts[0, 1] > 0 and rec.counts[0, 2] == 0
+
+
+def deliver_one_spike(brain, pre=0):
+    """Force `pre` to spike now and step until that spike has been delivered."""
+    kick = torch.zeros(brain.n_agents, brain.n_neurons); kick[:, pre] = 100.0
+    brain.step(ext_v=kick)
+    for _ in range(brain.delay_steps):
+        brain.step()
+
+
+def test_short_term_depression_halves_second_delivery():
+    brain = LIFBrain(make_connectome(2, [(0, 1, 10)]), device="cpu", std_u=0.5, std_tau_ms=1e9)
+    deliver_one_spike(brain)
+    first = brain.g[0, 1].item()
+    brain.g.zero_()
+    deliver_one_spike(brain)
+    assert brain.g[0, 1].item() == pytest.approx(0.5 * first, rel=1e-4)
+
+
+def test_short_term_depression_recovers_with_tau():
+    brain = LIFBrain(make_connectome(2, [(0, 1, 10)]), device="cpu", std_u=0.5, std_tau_ms=100.0)
+    deliver_one_spike(brain)
+    x0 = brain.x[0, 0].item()
+    assert x0 == pytest.approx(0.5)
+    for _ in range(1000):  # 100 ms = one tau
+        brain.step()
+    assert brain.x[0, 0].item() == pytest.approx(1 - 0.5 * math.exp(-1), rel=0.02)
+
+
+def test_short_term_depression_exempt_neurons_do_not_depress():
+    brain = LIFBrain(make_connectome(2, [(0, 1, 10)]), device="cpu", std_u=0.5, std_exempt=[0])
+    deliver_one_spike(brain)
+    first = brain.g[0, 1].item()
+    brain.g.zero_()
+    deliver_one_spike(brain)
+    assert brain.g[0, 1].item() == pytest.approx(first, rel=1e-5)
+
+
+@pytest.mark.parametrize("device", ["cpu"] + (["cuda"] if torch.cuda.is_available() else []))
+def test_std_event_and_spmv_kernels_agree(device):
+    c = random_connectome()
+    drive = ((torch.rand(2, c.n_neurons) < 0.1).float() * 25.0).to(device)
+    a = LIFBrain(c, n_agents=2, device=device, propagation="event", std_u=0.3, std_tau_ms=200.0)
+    b = LIFBrain(c, n_agents=2, device=device, propagation="spmv", std_u=0.3, std_tau_ms=200.0)
+    for _ in range(1500):
+        assert torch.equal(a.step(ext_i=drive), b.step(ext_i=drive))
+        assert torch.allclose(a.g, b.g, atol=1e-4)
+    assert a.x.min() < 0.99  # depression actually happened
+
+
+def test_male_cns_preset_exempts_sensory_neurons_from_depression():
+    from flyhigh.brain.lif import MALE_CNS_W_SYN, MALE_CNS_STD_U
+    c = make_connectome(3, [(0, 1, 10), (1, 2, 10)])
+    c.neurons = c.neurons.with_columns(pl.Series("superclass", ["cb_sensory", "cb_intrinsic", "cb_motor"]))
+    brain = LIFBrain.for_male_cns(c, device="cpu")
+    assert brain.p.w_syn_mv == MALE_CNS_W_SYN and brain.std
+    assert brain._std_u[0] == 0.0 and brain._std_u[1] == MALE_CNS_STD_U

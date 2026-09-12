@@ -7,6 +7,11 @@ Neuron model (Shiu et al. 2024, Nature; Brian2 "linear" method), per neuron:
     spike when v > v_th   ->  v = v_reset, g = 0 (input discarded), refractory for t_rfc
     presynaptic spike     ->  g[post] += w_syn * signed_synapse_count   (after delay t_dly)
 
+Optional short-term synaptic depression (Tsodyks & Markram): each presynaptic neuron has a
+resource x in [0, 1] that scales its outgoing weights, drops by a fraction `std_u` on every
+spike and recovers with time constant `std_tau_ms`. Off by default (std_u = 0), which is the
+exact Shiu model. We use it to stabilise the denser male-CNS graph — see docs/02-lif-brain.md.
+
 The batch dimension is the *agent*: every agent gets its own membrane state but the
 same wiring, so one sparse matmul propagates spikes for all agents at once.
 Voltages are in mV and time in ms throughout.
@@ -35,7 +40,26 @@ class ShiuParams:
     dt_ms: float = 0.1
 
 
+# Our calibration for the male CNS (docs/02-lif-brain.md): the graph carries ~1.9x FlyWire's
+# synapse density, so Shiu's w_syn ignites it; a lower gain plus short-term depression on
+# central (non-sensory) synapses keeps activity local while sensory drive stays high-fidelity.
+MALE_CNS_W_SYN = 0.20
+MALE_CNS_STD_U = 0.2
+MALE_CNS_STD_TAU_MS = 300.0
+
+
 class LIFBrain:
+    @classmethod
+    def for_male_cns(cls, connectome: Connectome, n_agents: int = 1, device="cuda", **kw) -> "LIFBrain":
+        sensory = connectome.neurons.filter(
+            connectome.neurons["superclass"].str.contains("sensory").fill_null(False)
+        )["index"].to_numpy().copy()
+        return cls(
+            connectome, n_agents=n_agents, device=device,
+            params=ShiuParams(w_syn_mv=MALE_CNS_W_SYN),
+            std_u=MALE_CNS_STD_U, std_tau_ms=MALE_CNS_STD_TAU_MS, std_exempt=sensory, **kw,
+        )
+
     def __init__(
         self,
         connectome: Connectome,
@@ -43,6 +67,9 @@ class LIFBrain:
         params: ShiuParams = ShiuParams(),
         device: str | torch.device = "cuda",
         propagation: str = "event",
+        std_u: float = 0.0,
+        std_tau_ms: float = 300.0,
+        std_exempt=None,
     ):
         """propagation: "event" gathers only the out-edges of neurons that spiked (fast when
         <1% of neurons fire per step, which is the norm); "spmv" is a full sparse matmul."""
@@ -78,6 +105,12 @@ class LIFBrain:
         self._c = tau / (tau - tm) * (self._b - self._a)  # g -> v coupling
 
         A, N = n_agents, self.n_neurons
+        self.std = std_u > 0
+        self.x = torch.ones((A, N), device=self.device)  # synaptic resource per presynaptic neuron
+        self._std_u = torch.full((N,), float(std_u), device=self.device)
+        if std_exempt is not None:
+            self._std_u[torch.as_tensor(std_exempt, dtype=torch.int64, device=self.device)] = 0.0
+        self._std_k = params.dt_ms / std_tau_ms
         self.v = torch.full((A, N), params.v_rest_mv, device=self.device)
         self.g = torch.zeros((A, N), device=self.device)
         self.refractory_left = torch.zeros((A, N), dtype=torch.int32, device=self.device)
@@ -90,6 +123,7 @@ class LIFBrain:
         self.g += (self.W @ arriving.T).T
 
     def _propagate_event(self, arriving: torch.Tensor) -> None:
+        """`arriving` is (A, N): 1 for each delayed spike, scaled by the synaptic resource x."""
         agent, pre = arriving.nonzero(as_tuple=True)
         if pre.numel() == 0:
             return
@@ -104,7 +138,7 @@ class LIFBrain:
         seg = torch.repeat_interleave(torch.arange(pre.numel(), device=self.device), lengths)
         edge = starts[seg] + (pos - seg_offsets[seg])
         flat_target = agent[seg] * self.n_neurons + self._col[edge]
-        self.g.view(-1).index_add_(0, flat_target, self._val[edge])
+        self.g.view(-1).index_add_(0, flat_target, self._val[edge] * arriving[agent, pre][seg])
 
     def set_refractory(self, neuron_idx, t_rfc_ms: float) -> None:
         """Per-neuron refractory period (Shiu: 0 ms for optogenetically activated neurons)."""
@@ -181,7 +215,13 @@ class LIFBrain:
 
         # 3. deliver the spikes emitted `delay_steps` ago, then queue this step's spikes
         #    in the slot they just vacated
-        self._propagate(self._spike_ring[self._ring_pos])
+        arriving = self._spike_ring[self._ring_pos]
+        if self.std:
+            self.x += (1.0 - self.x) * self._std_k
+            self._propagate(arriving * self.x)
+            self.x = torch.where(arriving > 0, self.x * (1.0 - self._std_u), self.x)
+        else:
+            self._propagate(arriving)
         self._spike_ring[self._ring_pos] = spiked.to(self._spike_ring.dtype)
         self._ring_pos = (self._ring_pos + 1) % self.delay_steps
         self.step_count += 1
