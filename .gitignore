@@ -9,3 +9,4 @@ Research_paper/*.pdf
 *.egg-info/
 .pytest_cache/
 .ruff_cache/
+.superpowers/
