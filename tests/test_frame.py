@@ -4,6 +4,12 @@ import pytest
 from flyhigh.senses.frame import PanoramicFrame, looming_disc, moving_spot, rotating_grating
 
 
+def darkest_azimuth(frame):
+    """Centre (mean azimuth) of the columns that are at the minimum column-mean luminance."""
+    col = frame.lum.mean(axis=0)
+    return frame.az_deg[col <= col.min() + 1e-6].mean()
+
+
 def test_grey_frame_geometry():
     f = PanoramicFrame.grey()
     assert f.lum.shape == (180, 360) and f.lum.dtype == np.float32
@@ -19,8 +25,7 @@ def test_looming_disc_grows_from_start_to_end_angle():
     dark1 = (frames[-1].lum < 0.25).sum()
     assert 0 < dark0 < dark1
     # the disc is centred at azimuth 60: the darkest column is there
-    col = frames[-1].lum.mean(axis=0).argmin()
-    assert frames[-1].az_deg[col] == pytest.approx(60, abs=1.5)
+    assert darkest_azimuth(frames[-1]) == pytest.approx(60, abs=1.5)
     # background untouched on the far side
     assert frames[-1].lum[:, 0] == pytest.approx(0.5)
 
@@ -36,6 +41,11 @@ def test_rotating_grating_shifts_by_speed():
 
 def test_moving_spot_moves_right():
     frames = moving_spot(az0=-30, el=0, deg_per_s=100, duration_ms=300)
-    c0 = frames[0].lum.mean(axis=0).argmin(); c1 = frames[-1].lum.mean(axis=0).argmin()
-    assert frames[0].az_deg[c0] == pytest.approx(-30, abs=1.5)
-    assert frames[-1].az_deg[c1] == pytest.approx(-1, abs=2)
+    assert darkest_azimuth(frames[0]) == pytest.approx(-30, abs=1.5)
+    assert darkest_azimuth(frames[-1]) == pytest.approx(-1, abs=2)
+
+
+def test_looming_disc_centre_does_not_depend_on_start_size():
+    for start in (5, 20, 40):
+        frames = looming_disc(az=60, el=0, start_deg=start, end_deg=60, duration_ms=200)
+        assert darkest_azimuth(frames[-1]) == pytest.approx(60, abs=1.5)

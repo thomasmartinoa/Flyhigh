@@ -63,7 +63,7 @@ def looming_disc(
     return [
         _disc(
             base,
-            az + start_deg + 0.5,
+            az,
             el,
             0.5 * (start_deg + (end_deg - start_deg) * i / max(n - 1, 1)),
             lum,
