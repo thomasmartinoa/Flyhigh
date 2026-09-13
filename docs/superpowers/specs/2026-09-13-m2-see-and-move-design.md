@@ -9,7 +9,7 @@ motor command comes out, with two visual reflexes working end-to-end:
 
 1. **Looming escape** — an expanding dark disc → LC4 / LPLC2 → giant fiber (`DNp01`) → `escape`.
 2. **Optomotor response** — the whole scene rotating → T4/T5 → HS/VS tangential cells →
-   steering descending neurons → a counter-`yaw`.
+   steering descending neurons → a `yaw` that follows the scene (the optomotor turn that cancels retinal slip).
 
 Everything is driven by synthetic stimuli in M2; M3 replaces them with rendered camera frames
 from the MuJoCo box, M5 with a real camera. Two agents must be supported (batched) from the start.
@@ -93,7 +93,7 @@ counts kept by the agent). Channels, each a small pure function with its own tes
 | channel | neurons | rule |
 |---|---|---|
 | `escape` | `DNp01` (GF), `DNp04` | GF rate > 50 Hz, or GF > 20 Hz and DNp04 > 50 Hz |
-| `yaw` | `DNa01`, `DNa02` (L/R); `HSN/HSE/HSS` (L/R) | `k_dn·(R−L)/(R+L+ε)` from DNa + `k_hs·(L−R)/(L+R+ε)` from HS (sign: counter-rotate the perceived motion), clipped to ±1 |
+| `yaw` | `DNa01`, `DNa02` (L/R); `HSN/HSE/HSS` (L/R) | `k_dn·(R−L)/(R+L+ε)` from DNa + `k_hs·(R−L)/(L+R+ε)` from HS; sign convention: the fly turns *with* the perceived scene rotation (optomotor), clipped to ±1; the exact HS side→sign mapping is verified against the validation, not assumed |
 | `lift` | `VS` (L+R) vs rest | `k_vs·(VS − vs_rest)` clipped |
 | `forward` | `DNp09` | `0.2 + k_fwd·rate`, clipped; 0 while `escape` |
 
@@ -126,8 +126,9 @@ direction)`, `moving_spot(...)`.
 2. **Escape:** looming disc from azimuth +60° (right eye), 5° → 60° over 500 ms → LPLC2/LC4 rates
    rise; GF spikes; `escape=True` at some tick before the disc reaches 40°; no escape for a
    receding disc (60° → 5°).
-3. **Optomotor:** full-field grating rotating clockwise at 60°/s → `yaw` < −0.3 sustained for
-   ≥ 200 ms; anticlockwise → `yaw` > +0.3; the two responses mirror to within 20 %.
+3. **Optomotor:** full-field grating rotating clockwise (seen from above, i.e. the scene moves
+   right-to-left in front of the fly) at 60°/s → `yaw` > +0.3 (turn right, following the scene)
+   sustained for ≥ 200 ms; anticlockwise → `yaw` < −0.3; the two responses mirror to within 20 %.
 4. **Two agents independent:** agent 0 sees the looming disc, agent 1 sees grey → only agent 0 escapes.
 5. **Speed:** report ticks/s for 1 and 2 agents (target ≥ 10 ticks/s at full GPU clocks).
 
