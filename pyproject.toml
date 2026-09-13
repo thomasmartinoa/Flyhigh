@@ -3,7 +3,7 @@ name = "flyhigh"
 version = "0.1.0"
 description = "Connectome-driven fly brain simulation: male Drosophila CNS -> LIF brain -> simulated / real flying agents"
 authors = [{ name = "Martin Thomas" }]
-requires-python = ">=3.13,<3.14"
+requires-python = ">=3.12,<3.13"
 license = "MIT"
 dependencies = [
     "torch>=2.9",
@@ -14,6 +14,7 @@ dependencies = [
     "matplotlib>=3.9",
     "tqdm>=4.66",
     "requests>=2.32",
+    "flyvis>=1.1",
 ]
 
 [project.optional-dependencies]
@@ -30,7 +31,10 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-markers = ["data: needs the real male-CNS tables in data/raw (skipped otherwise)"]
+markers = [
+    "data: needs the real male-CNS tables in data/raw (skipped otherwise)",
+    "flyvis: needs the pretrained flyvis models under data/flyvis",
+]
 filterwarnings = ["ignore:Sparse CSR tensor support is in beta state:UserWarning"]
 
 [tool.ruff]

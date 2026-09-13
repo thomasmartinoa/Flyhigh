@@ -4,6 +4,7 @@ __pycache__/
 data/raw/
 data/cache/
 data/runs/
+data/flyvis/
 .ipynb_checkpoints/
 Research_paper/*.pdf
 *.egg-info/
