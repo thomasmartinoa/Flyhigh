@@ -40,7 +40,7 @@ class PanoramicFrame:
         return np.meshgrid(self.az_deg, self.el_deg)
 
 
-def _angular_distance(az, el, az0, el0):
+def angular_distance(az, el, az0, el0):
     """Great-circle distance in degrees between every pixel and a direction."""
     a, e, a0, e0 = np.radians(az), np.radians(el), np.radians(az0), np.radians(el0)
     cos_d = np.sin(e) * np.sin(e0) + np.cos(e) * np.cos(e0) * np.cos(a - a0)
@@ -50,7 +50,7 @@ def _angular_distance(az, el, az0, el0):
 def _disc(base: PanoramicFrame, az, el, radius_deg, lum) -> PanoramicFrame:
     azg, elg = base.angular_grid()
     out = base.lum.copy()
-    out[_angular_distance(azg, elg, az, el) <= radius_deg] = lum
+    out[angular_distance(azg, elg, az, el) <= radius_deg] = lum
     return PanoramicFrame(out)
 
 
