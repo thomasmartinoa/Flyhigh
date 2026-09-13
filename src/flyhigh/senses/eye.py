@@ -12,29 +12,11 @@ from dataclasses import dataclass, field
 import numpy as np
 import scipy.sparse as sp
 
+from flyhigh.senses.flyvis_compat import preserve_torch_default_device
 from flyhigh.senses.frame import PanoramicFrame, angular_distance
 
-
-def _import_flyvis_hex_utils():
-    """Import flyvis's hex-lattice helpers without leaking its import-time side effect.
-
-    flyvis's package `__init__` calls `torch.set_default_device(cuda if available else cpu)`
-    as a side effect of import. EyeGeometry/EyeSampler only need pure-numpy hex-lattice math
-    from it, but importing this module anywhere in a test session (e.g. via pytest collection)
-    would otherwise silently switch every other module's default torch device — breaking code
-    such as flyhigh.brain.lif that mixes explicit-device and default-device tensors. Restore
-    whatever default device was in effect before this import.
-    """
-    import torch
-
-    prior_device = torch.get_default_device()
+with preserve_torch_default_device():
     from flyvis.utils.hex_utils import get_hex_coords, hex_to_pixel
-
-    torch.set_default_device(prior_device)
-    return get_hex_coords, hex_to_pixel
-
-
-get_hex_coords, hex_to_pixel = _import_flyvis_hex_utils()
 
 
 @dataclass(frozen=True)
