@@ -48,7 +48,9 @@ class FlyvisEye:
         """2 s of grey (0.5) → steady state; remember it as the per-neuron resting activity,
         so that later a grey screen injects nothing into the LIF brain."""
         with torch.no_grad(), self._flyvis_device():
-            self._state = self.net.steady_state(t_pre=self.T_GREY_S, dt=self.dt, batch_size=batch_size)
+            self._state = self.net.steady_state(
+                t_pre=self.T_GREY_S, dt=self.dt, batch_size=batch_size
+            )
         self.rest = self._state.nodes.activity[0].detach().cpu().numpy()
         self.batch_size = batch_size
 
