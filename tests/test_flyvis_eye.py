@@ -66,3 +66,32 @@ def test_edge_offsets_have_the_known_t4_geometry(eye):
     assert row["du"] == 0 and row["dv"] == 0  # L1 -> Mi1 is same-column
     mi9 = off.filter((pl.col("s") == "Mi9") & pl.col("t").str.starts_with("T4"))
     assert mi9.height == 4 and (mi9.select(pl.col("du") ** 2 + pl.col("dv") ** 2).min().item() > 0)
+
+
+def _grating_frames(axis, deg_per_s, n=40, wavelength_deg=30):
+    from flyhigh.senses.frame import TICK_MS, PanoramicFrame
+    az, el = PanoramicFrame.grey().angular_grid()
+    coord = az if axis == "az" else el
+    return [PanoramicFrame((0.5 + 0.5 * np.sin(2 * np.pi * (coord - deg_per_s * i * TICK_MS / 1000) / wavelength_deg))
+                           .astype(np.float32)) for i in range(n)]
+
+
+@pytest.mark.parametrize("axis,speed,winner", [
+    ("az", +60, "T4a"),  # front-to-back on the right eye
+    ("az", -60, "T4b"),  # back-to-front
+    ("el", +60, "T4c"),  # upward
+])
+def test_t4_subtypes_prefer_their_textbook_directions_on_the_right_eye(eye, axis, speed, winner):
+    """Maisak et al. 2013: T4a front-to-back, T4b back-to-front, T4c up, T4d down. The eye
+    geometry must place flyvis's lattice on the sphere so that its (u, v) directions mean
+    that -- otherwise HS/VS receive the wrong T4 subtype and the optomotor sign flips."""
+    from flyhigh.senses.eye import EyeGeometry, EyeSampler
+    sampler = EyeSampler((180, 360), [EyeGeometry("L"), EyeGeometry("R")])
+    eye.reset(batch_size=2)
+    acts = []
+    for fr in _grating_frames(axis, speed):
+        a = eye.step(torch.as_tensor(sampler.sample(fr), device=eye.device))
+        acts.append(a.cpu().numpy()[1] - eye.rest)  # right eye
+    m = np.mean(acts[20:], axis=0)
+    by_type = {t: m[eye.types == t].mean() for t in ("T4a", "T4b", "T4c", "T4d")}
+    assert max(by_type, key=by_type.get) == winner, by_type

@@ -3,6 +3,12 @@
 flyvis axial hex coords (u, v) → planar offsets via its own `hex_to_pixel` convention, scaled so
 neighbouring columns are `spacing_deg` apart; the plane is placed on the sphere at the eye's
 centre direction. Each column integrates light over a Gaussian acceptance cone.
+
+Orientation is pinned by physiology, not by flyvis's plotting convention: measured against
+gratings (tests/test_flyvis_eye.py), flyvis's T4a prefers motion towards -x and T4c towards
++y of `hex_to_pixel`; Maisak et al. 2013 say T4a = front-to-back and T4c = upward. So on the
+right eye azimuth *decreases* with x and elevation *increases* with y (a 180° turn of the
+lattice relative to the naive reading); the left eye is the mirror image.
 """
 
 from __future__ import annotations
@@ -37,8 +43,8 @@ class EyeGeometry:
         x, y = hex_to_pixel(u, v)  # neighbours are sqrt(3) apart in this convention
         scale = self.spacing_deg / np.sqrt(3.0)
         sign = 1.0 if self.side == "R" else -1.0
-        az = sign * (self.center_az_deg + x * scale)
-        el = self.center_el_deg - y * scale  # hex_to_pixel's y grows downward
+        az = sign * (self.center_az_deg - x * scale)  # -x is front-to-back (T4a), see above
+        el = self.center_el_deg + y * scale  # +y is up (T4c)
         object.__setattr__(self, "u", u)
         object.__setattr__(self, "v", v)
         object.__setattr__(self, "az_deg", az.astype(np.float32))
