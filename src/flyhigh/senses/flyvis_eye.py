@@ -5,6 +5,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 
 import numpy as np
+import polars as pl
 import torch
 
 from flyhigh.senses.flyvis_compat import import_flyvis, preserve_torch_default_device
@@ -32,6 +33,25 @@ class FlyvisEye:
         self.n_neurons = len(self.types)
         self._state = None
         self.rest = None
+
+    def edge_offsets(self) -> pl.DataFrame:
+        """flyvis's synapse-count-weighted mean column offset (source − target, axial u/v) per
+        (source_type, target_type): the retinotopic geometry the model was built with.
+        Columns s, t, du, dv, n -- the same shape as `columns.partner_offsets`."""
+        e = self.net.connectome.edges
+        df = pl.DataFrame({
+            "s": [t.decode() for t in e.source_type[:]], "t": [t.decode() for t in e.target_type[:]],
+            "du": np.asarray(e.du[:], dtype=float), "dv": np.asarray(e.dv[:], dtype=float),
+            "n": np.asarray(e.n_syn[:], dtype=float),
+        })
+        return (
+            df.group_by("s", "t").agg(
+                (pl.col("du") * pl.col("n")).sum().alias("du"),
+                (pl.col("dv") * pl.col("n")).sum().alias("dv"), pl.col("n").sum().alias("n"),
+            )
+            .with_columns(pl.col("du") / pl.col("n"), pl.col("dv") / pl.col("n"))
+            .sort("t", "s")
+        )
 
     @contextmanager
     def _flyvis_device(self):

@@ -1,4 +1,5 @@
 import numpy as np
+import polars as pl
 import pytest
 import torch
 
@@ -56,3 +57,12 @@ def eye_v_of_columns():
     from flyvis.utils.hex_utils import get_hex_coords
 
     return get_hex_coords(15)[1]
+
+
+def test_edge_offsets_have_the_known_t4_geometry(eye):
+    off = eye.edge_offsets()
+    assert set(off.columns) == {"s", "t", "du", "dv", "n"}
+    row = off.filter((pl.col("s") == "L1") & (pl.col("t") == "Mi1")).row(0, named=True)
+    assert row["du"] == 0 and row["dv"] == 0  # L1 -> Mi1 is same-column
+    mi9 = off.filter((pl.col("s") == "Mi9") & pl.col("t").str.starts_with("T4"))
+    assert mi9.height == 4 and (mi9.select(pl.col("du") ** 2 + pl.col("dv") ** 2).min().item() > 0)
