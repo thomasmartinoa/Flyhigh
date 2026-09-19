@@ -53,8 +53,8 @@ def forward_channel(dnp09_hz, escape: bool, p: ReadoutParams) -> float:
 
 
 class Readout:
-    def __init__(self, connectome: Connectome, params: ReadoutParams = ReadoutParams()):
-        self.p = params
+    def __init__(self, connectome: Connectome, params: ReadoutParams | None = None):
+        self.p = params or ReadoutParams()
         side = connectome.neurons["side"].to_numpy()
 
         def ids(pattern, s=None):
