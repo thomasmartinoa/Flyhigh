@@ -21,8 +21,12 @@ from flyhigh.senses.eye import EyeGeometry, EyeSampler
 from flyhigh.senses.flyvis_eye import FlyvisEye
 from flyhigh.senses.frame import TICK_MS, PanoramicFrame
 
-DEFAULT_GAINS: dict[str, float] = {}  # per flyvis type; filled by scripts/calibrate_bridge.py (Task 9)
-DEFAULT_GAIN = 20.0
+# Chosen by effect with scripts/calibrate_bridge.py (table in docs/03-see-and-move.md): the gain is
+# bounded above by the LIF's over-excitable tangential cells and giant fiber (HS saturate near
+# 200 Hz and a plain grating fires the GF at gain >= 18), not by T4/T5 rates, which stay below
+# their physiological 50-100 Hz. Per-type overrides go in DEFAULT_GAINS.
+DEFAULT_GAINS: dict[str, float] = {}
+DEFAULT_GAIN = 15.0
 
 
 class FlyAgent:
