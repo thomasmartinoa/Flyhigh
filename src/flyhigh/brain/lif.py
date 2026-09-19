@@ -70,9 +70,12 @@ class LIFBrain:
         std_u: float = 0.0,
         std_tau_ms: float = 300.0,
         std_exempt=None,
+        driven_only=None,
     ):
         """propagation: "event" gathers only the out-edges of neurons that spiked (fast when
-        <1% of neurons fire per step, which is the norm); "spmv" is a full sparse matmul."""
+        <1% of neurons fire per step, which is the norm); "spmv" is a full sparse matmul.
+        driven_only: neuron indices whose incoming synapses are removed, so they spike only
+        from ext_i / ext_v -- the cell types an external model (flyvis) computes for us."""
         self.connectome = connectome
         self.p = params = params or ShiuParams()
         self.n_agents = n_agents
@@ -97,6 +100,8 @@ class LIFBrain:
             self._propagate = self._propagate_spmv
         else:
             raise ValueError(f"unknown propagation {propagation!r}")
+        if driven_only is not None and len(driven_only):
+            self._cut_incoming(torch.as_tensor(driven_only, dtype=torch.int64, device=self.device))
 
         # Exact integration constants for the linear ODE pair over one step.
         dt, tm, tau = params.dt_ms, params.t_mbr_ms, params.tau_ms
@@ -139,6 +144,20 @@ class LIFBrain:
         edge = starts[seg] + (pos - seg_offsets[seg])
         flat_target = agent[seg] * self.n_neurons + self._col[edge]
         self.g.view(-1).index_add_(0, flat_target, self._val[edge] * arriving[agent, pre][seg])
+
+    def _cut_incoming(self, idx: torch.Tensor) -> None:
+        """Zero every synapse *onto* these neurons (the mirror image of `silence`)."""
+        mask = torch.zeros(self.n_neurons, dtype=torch.bool, device=self.device)
+        mask[idx] = True
+        if self.propagation == "event":
+            self._val[mask[self._col]] = 0.0
+        else:
+            W = self.W.to_sparse_coo().coalesce()
+            post = W.indices()[0]
+            keep = ~mask[post]
+            self.W = torch.sparse_coo_tensor(
+                W.indices()[:, keep], W.values()[keep], W.shape
+            ).coalesce().to_sparse_csr()
 
     def set_refractory(self, neuron_idx, t_rfc_ms: float) -> None:
         """Per-neuron refractory period (Shiu: 0 ms for optogenetically activated neurons)."""

@@ -6,6 +6,7 @@ import pytest
 import torch
 
 from flyhigh.brain.lif import LIFBrain, ShiuParams
+from flyhigh.brain.recorder import SpikeRecorder
 from flyhigh.data.connectome import Connectome
 
 
@@ -205,3 +206,26 @@ def test_male_cns_preset_exempts_sensory_neurons_from_depression():
     brain = LIFBrain.for_male_cns(c, device="cpu")
     assert brain.p.w_syn_mv == MALE_CNS_W_SYN and brain.std
     assert brain._std_u[0] == 0.0 and brain._std_u[1] == MALE_CNS_STD_U
+
+
+@pytest.mark.parametrize("prop", ["event", "spmv"])
+def test_driven_only_neurons_ignore_their_synapses_but_still_spike_from_ext_i(prop):
+    c = make_connectome(2, [(0, 1, 300)])
+    drive = torch.zeros(1, 2); drive[0, 0] = 30.0
+    brain = LIFBrain(c, device="cpu", propagation=prop, driven_only=[1])
+    rec = brain.run(3_000, ext_i=drive, recorder=SpikeRecorder())
+    assert rec.counts[0, 0] > 0 and rec.counts[0, 1] == 0  # the 300-synapse input is cut
+    drive2 = drive.clone(); drive2[0, 1] = 30.0
+    rec2 = LIFBrain(c, device="cpu", propagation=prop, driven_only=[1]).run(
+        3_000, ext_i=drive2, recorder=SpikeRecorder())
+    assert rec2.counts[0, 1] > 0
+    # ... and without driven_only the same wiring does excite neuron 1
+    rec3 = LIFBrain(c, device="cpu", propagation=prop).run(3_000, ext_i=drive, recorder=SpikeRecorder())
+    assert rec3.counts[0, 1] > 0
+
+
+def test_driven_only_keeps_outgoing_synapses():
+    c = make_connectome(2, [(1, 0, 300)])
+    drive = torch.zeros(1, 2); drive[0, 1] = 30.0
+    rec = LIFBrain(c, device="cpu", driven_only=[1]).run(3_000, ext_i=drive, recorder=SpikeRecorder())
+    assert rec.counts[0, 1] > 0 and rec.counts[0, 0] > 0
