@@ -22,6 +22,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
+import numpy as np
 import torch
 
 from flyhigh.data.connectome import Connectome
@@ -46,18 +47,29 @@ class ShiuParams:
 MALE_CNS_W_SYN = 0.20
 MALE_CNS_STD_U = 0.2
 MALE_CNS_STD_TAU_MS = 300.0
+# The optic lobe's intrinsic circuitry is a different regime from the central circuits the
+# above was calibrated on (docs/03-see-and-move.md): its neurons are graded and fire at 100+ Hz,
+# so their outputs are exempt from depression like the sensory neurons, and its inhibitory
+# interneurons (LPi, Li, Am1 ...) need x8 to gate the looming detectors against wide-field
+# motion. Synapses of the projection neurons into the central brain, and all central synapses,
+# are untouched, so the M1 gustatory and looming-by-activation results stand.
+MALE_CNS_OPTIC_INH_SCALE = 8.0
+OPTIC_INTRINSIC_SUPERCLASSES = ("ol_intrinsic", "ol_sensory")
 
 
 class LIFBrain:
     @classmethod
-    def for_male_cns(cls, connectome: Connectome, n_agents: int = 1, device="cuda", **kw) -> LIFBrain:
-        sensory = connectome.neurons.filter(
-            connectome.neurons["superclass"].str.contains("sensory").fill_null(False)
-        )["index"].to_numpy().copy()
+    def for_male_cns(cls, connectome: Connectome, n_agents: int = 1, device="cuda",
+                     optic_inh_scale: float = MALE_CNS_OPTIC_INH_SCALE, **kw) -> LIFBrain:
+        """The male-CNS preset: M1's central calibration plus the optic-lobe rules above."""
+        n = connectome.neurons
+        sensory = n.filter(n["superclass"].str.contains("sensory").fill_null(False))["index"].to_numpy()
+        optic = n.filter(n["superclass"].is_in(OPTIC_INTRINSIC_SUPERCLASSES))["index"].to_numpy()
         return cls(
             connectome, n_agents=n_agents, device=device,
             params=ShiuParams(w_syn_mv=MALE_CNS_W_SYN),
-            std_u=MALE_CNS_STD_U, std_tau_ms=MALE_CNS_STD_TAU_MS, std_exempt=sensory, **kw,
+            std_u=MALE_CNS_STD_U, std_tau_ms=MALE_CNS_STD_TAU_MS, std_exempt=np.union1d(sensory, optic),
+            inh_scale=optic_inh_scale, inh_scale_pre=optic, **kw,
         )
 
     def __init__(
@@ -71,11 +83,17 @@ class LIFBrain:
         std_tau_ms: float = 300.0,
         std_exempt=None,
         driven_only=None,
+        inh_scale: float = 1.0,
+        inh_scale_pre=None,
     ):
         """propagation: "event" gathers only the out-edges of neurons that spiked (fast when
         <1% of neurons fire per step, which is the norm); "spmv" is a full sparse matmul.
         driven_only: neuron indices whose incoming synapses are removed, so they spike only
-        from ext_i / ext_v -- the cell types an external model (flyvis) computes for us."""
+        from ext_i / ext_v -- the cell types an external model (flyvis) computes for us.
+        inh_scale: multiplies inhibitory (GABA/Glu/histamine) weights -- all of them, or only
+        those whose presynaptic neuron is in `inh_scale_pre`. One synapse count maps to one
+        w_syn regardless of transmitter in Shiu's model; this is the knob for the
+        excitation/inhibition balance, per region if needed."""
         self.connectome = connectome
         self.p = params = params or ShiuParams()
         self.n_agents = n_agents
@@ -85,6 +103,15 @@ class LIFBrain:
         self.rfc_steps = round(params.t_rfc_ms / params.dt_ms)
 
         # Edge weights already carry the NT sign; scale by w_syn here.
+        scaled_pre = None
+        if inh_scale_pre is not None:
+            scaled_pre = torch.zeros(self.n_neurons, dtype=torch.bool)
+            scaled_pre[torch.as_tensor(inh_scale_pre, dtype=torch.int64)] = True
+
+        def scale_inhibition(val, pre):
+            m = val < 0 if scaled_pre is None else (val < 0) & scaled_pre[pre]
+            return torch.where(m, val * inh_scale, val)
+
         self.propagation = propagation
         if propagation == "event":
             # CSR indexed by *pre* neuron so a spike's out-edges are one contiguous run.
@@ -93,10 +120,14 @@ class LIFBrain:
             counts = torch.bincount(pre, minlength=self.n_neurons)
             self._rowptr = torch.cat([torch.zeros(1, dtype=torch.int64), counts.cumsum(0)]).to(self.device)
             self._col = torch.from_numpy(e["post_idx"].to_numpy().copy()).to(self.device)
-            self._val = (torch.from_numpy(e["weight"].to_numpy().copy()).float() * params.w_syn_mv).to(self.device)
+            val = torch.from_numpy(e["weight"].to_numpy().copy()).float() * params.w_syn_mv
+            self._val = scale_inhibition(val, pre).to(self.device)
             self._propagate = self._propagate_event
         elif propagation == "spmv":
-            self.W = connectome.to_sparse(device=self.device) * params.w_syn_mv  # W[post, pre]
+            W = connectome.to_sparse() * params.w_syn_mv  # W[post, pre]
+            self.W = torch.sparse_csr_tensor(
+                W.crow_indices(), W.col_indices(), scale_inhibition(W.values(), W.col_indices()), W.shape
+            ).to(self.device)
             self._propagate = self._propagate_spmv
         else:
             raise ValueError(f"unknown propagation {propagation!r}")
