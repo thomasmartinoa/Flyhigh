@@ -41,7 +41,7 @@ def test_bright_sphere_at_a_bearing_lights_that_panorama_pixel_and_eye_column(az
     p = RoomParams()
     xml = build_mjcf(1, p, start=[(0.0, 0.0, 1.5)]).replace(
         'rgb2="0.85 0.85 0.85"', 'rgb2="0.15 0.15 0.15"'
-    ).replace(
+    ).replace('rgba="0.5 0.5 0.5 1"', 'rgba="0.1 0.1 0.1 1"').replace(
         "</worldbody>",
         '<body name="probe" mocap="true" pos="0 0 0"><geom type="sphere" size="0.08" rgba="1 1 1 1" '
         'contype="0" conaffinity="0"/></body></worldbody>',
@@ -53,7 +53,7 @@ def test_bright_sphere_at_a_bearing_lights_that_panorama_pixel_and_eye_column(az
     r = mujoco.Renderer(m, 96, 96)
     frame = CubemapPanorama(m, agent=0, face_px=96).render(r, d)
     r.close()
-    bright = frame.lum > 0.5 * frame.lum.max()  # the sphere's disc (its lit top is brightest)
+    bright = frame.lum > 0.7 * frame.lum.max()  # the sphere's disc (its lit top is brightest)
     rows, cols = np.nonzero(bright)
     assert abs(frame.az_deg[cols].mean() - az) < 3 and abs(frame.el_deg[rows].mean() - el) < 3
     if 0 < az < 130 and abs(el) < 60:  # inside the right eye's field: the eye sees it too

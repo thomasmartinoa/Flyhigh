@@ -19,7 +19,8 @@ from flyhigh.motor.command import MotorCommand
 
 @dataclass(frozen=True)
 class BodyParams:
-    v_max: float = 1.0  # m/s forward at forward = 1
+    v_max: float = 2.5  # m/s at forward = 1: the readout's 0.2 bias cruises at 0.5 m/s, so two flies
+    # closing head-on loom at ~70°/s at half a metre (M2 validated 110°/s)
     w_max_deg: float = 180.0  # yaw rate at yaw = 1
     vz_max: float = 0.5  # m/s climb at lift = 1
     escape_up: float = 2.0  # m/s

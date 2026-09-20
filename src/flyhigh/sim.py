@@ -21,8 +21,10 @@ from flyhigh.world.scene import RoomParams, build_mjcf
 
 class Simulation:
     def __init__(self, agent, n_agents: int = 2, room: RoomParams | None = None, body: BodyParams | None = None,
-                 face_px: int = 96, start=None):
-        """`agent`: the brain for all n_agents (a FlyAgent built with the same n_agents)."""
+                 face_px: int = 96, start=None, settle_s: float = 0.5):
+        """`agent`: the brain for all n_agents (a FlyAgent built with the same n_agents).
+        `settle_s`: the brain looks at the still room for this long before anything moves --
+        a brain that woke up on grey startles at a room appearing (the M2 flash response)."""
         self.room = room or RoomParams()
         self.model = mujoco.MjModel.from_xml_string(build_mjcf(n_agents, self.room, start))
         self.data = mujoco.MjData(self.model)
@@ -36,11 +38,12 @@ class Simulation:
         self.physics_per_tick = round(TICK_MS / (self.model.opt.timestep * 1000))
         self.dt_ms = TICK_MS / self.physics_per_tick
         self.tick = 0
+        self.disturb_yaw: dict[int, float] = {}  # agent -> imposed yaw rate (°/s, + = right), an external push
         self.rows: list[dict] = []
         self.last_frames: list[PanoramicFrame] = []
         self.last_commands = []
-        self._watch = getattr(getattr(agent, "readout", None), "watch", None)
         self._ids = self._readout_ids()
+        self.settle(settle_s)
 
     def _readout_ids(self):
         ro = getattr(self.agent, "readout", None)
@@ -49,6 +52,12 @@ class Simulation:
         return {"gf": ro.gf, "hs_l": ro.hs_l, "hs_r": ro.hs_r}
 
     # ---------------------------------------------------------------- stepping
+    def settle(self, seconds: float) -> None:
+        """Feed the brain the current view, unchanging, with physics frozen."""
+        frames = self.frames()
+        for _ in range(round(seconds * 1000 / TICK_MS)):
+            self.agent.tick(frames)
+
     def frames(self) -> list[PanoramicFrame]:
         return [eye.render(self.renderer, self.data) for eye in self.eyes]
 
@@ -58,6 +67,8 @@ class Simulation:
         for _ in range(self.physics_per_tick):
             for body, cmd in zip(self.bodies, cmds):
                 body.apply(cmd, self.dt_ms)
+            for i, rate in self.disturb_yaw.items():
+                self.data.qvel[self._yaw_dof(i)] = -np.radians(rate)
             self.hand.step(self.dt_ms / 1000.0)
             mujoco.mj_step(self.model, self.data)
         self.tick += 1
@@ -94,16 +105,21 @@ class Simulation:
 
     # --------------------------------------------------------------- controls
     def hide_agent(self, i: int) -> None:
-        """Make agent i invisible to every eye (its geoms get alpha 0); physics unchanged."""
+        """Make agent i a ghost: invisible to every eye (alpha 0) and without contacts, so a
+        control run differs from the real one only in what the flies can see."""
         body = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, f"agent{i}")
         for g in range(self.model.ngeom):
             if self.model.geom_bodyid[g] == body:
                 self.model.geom_rgba[g, 3] = 0.0
+                self.model.geom_contype[g] = 0
+                self.model.geom_conaffinity[g] = 0
+
+    def _yaw_dof(self, i: int) -> int:
+        return int(self.model.jnt_dofadr[self.model.body_jntadr[self.bodies[i].id]]) + 5  # body-frame ω_z
 
     def kick_yaw(self, i: int, rate_deg_s: float) -> None:
-        """Impose a yaw rate on agent i (an external disturbance, + = right)."""
-        adr = self.model.jnt_dofadr[self.model.body_jntadr[self.bodies[i].id]]
-        self.data.qvel[adr + 5] = -np.radians(rate_deg_s)  # free-joint angular velocity, body frame
+        """Impose a yaw rate on agent i once (an external disturbance, + = right)."""
+        self.data.qvel[self._yaw_dof(i)] = -np.radians(rate_deg_s)
         mujoco.mj_forward(self.model, self.data)
 
     def speed(self, seconds: float = 1.0) -> float:

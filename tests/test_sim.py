@@ -28,13 +28,14 @@ class DarkFlincher(IdleAgent):
 
 
 def test_loop_ticks_physics_and_logs_every_agent():
-    sim = Simulation(IdleAgent(2), n_agents=2, face_px=32)
+    sim = Simulation(IdleAgent(2), n_agents=2, face_px=32, settle_s=0.3)
     assert sim.physics_per_tick == 5
+    assert len(sim.agent.seen) == 30 and sim.tick == 0  # settling: brain ticks, physics does not
     log = sim.run(0.2)
     sim.close()
     assert sim.tick == 20 and log.height == 40 and set(log["agent"]) == {0, 1}
     assert (abs(log["z"] - 1.0) < 0.02).all()
-    assert len(sim.agent.seen) == 20 and 0.3 < sim.agent.seen[-1][0] < 0.7
+    assert len(sim.agent.seen) == 50 and 0.3 < sim.agent.seen[-1][0] < 0.7
 
 
 def test_hand_in_the_face_makes_a_flincher_escape_and_only_it():
@@ -48,7 +49,7 @@ def test_hand_in_the_face_makes_a_flincher_escape_and_only_it():
 
 
 def test_hidden_agent_is_invisible_but_still_there():
-    sim = Simulation(IdleAgent(2), n_agents=2, face_px=32, start=[(0.0, 0.0, 1.0), (0.6, 0.0, 1.0)])
+    sim = Simulation(IdleAgent(2), n_agents=2, face_px=32, start=[(0.0, 0.0, 1.0), (1.2, 0.0, 1.0)])
     before = sim.frames()[0].lum
     sim.hide_agent(1)
     after = sim.frames()[0].lum
@@ -56,7 +57,8 @@ def test_hidden_agent_is_invisible_but_still_there():
     rows, cols = np.nonzero(changed)
     assert changed.any() and abs(cols.mean() - 180) < 10 and 70 < rows.min() < 95  # straight ahead (+ its shadow)
     assert not changed[:, :120].any() and not changed[:, 240:].any()  # and nowhere else
-    assert sim.bodies[1].pos[0] == pytest.approx(0.6)
+    assert sim.bodies[1].pos[0] == pytest.approx(1.2)
+    assert sim.model.geom_contype[sim.model.body_geomadr[sim.bodies[1].id]] == 0  # a ghost
     sim.close()
 
 

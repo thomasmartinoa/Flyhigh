@@ -34,9 +34,9 @@ def test_hovers_level_at_its_start_height_on_idle():
 
 def test_forward_command_reaches_the_target_speed_and_keeps_height():
     m, d, body = make()
-    fly(m, d, body, MotorCommand(forward=0.5, yaw=0.0, lift=0.0, escape=False), 2.0)
+    fly(m, d, body, MotorCommand(forward=0.2, yaw=0.0, lift=0.0, escape=False), 2.0)
     v, _ = body.local_velocity()
-    assert abs(v[0] - 0.5) < 0.05 and abs(v[1]) < 0.05
+    assert abs(v[0] - 0.5) < 0.05 and abs(v[1]) < 0.05  # 0.2 of v_max = 2.5 m/s
     assert abs(body.pos[2] - 1.0) < 0.05 and body.pos[0] > 0.5
 
 
@@ -83,3 +83,7 @@ def test_hand_approaches_stops_short_and_retreats():
         closest = min(closest, np.linalg.norm(hand.pos - [0, 0, 1]))
     assert abs(closest - (0.2 + hand.radius)) < 0.01
     assert hand.state == "idle" and np.allclose(hand.pos, home, atol=1e-6)
+    hand.park()
+    assert hand.pos[2] < 0
+    hand.approach([0.0, 0.0, 1.0])
+    assert np.allclose(hand.pos, home)

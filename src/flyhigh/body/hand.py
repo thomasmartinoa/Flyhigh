@@ -23,16 +23,27 @@ class Hand:
         return self.d.mocap_pos[self.mocap_id].copy()
 
     def approach(self, target) -> None:
-        self.target = np.asarray(target, dtype=float)
+        """`target`: a point, or a callable returning the current point (a hand that follows the fly)."""
+        self.target = target if callable(target) else np.asarray(target, dtype=float)
+        if self.pos[2] < 0:  # parked: come back to the corner first
+            self.d.mocap_pos[self.mocap_id] = self.home
         self.state = "approach"
 
     def idle(self) -> None:
         self.state = "idle"
 
+    def park(self) -> None:
+        """Take the hand out of the room (below the floor) until the next approach()."""
+        self.state = "idle"
+        self.d.mocap_pos[self.mocap_id] = self.home + np.array([0.0, 0.0, -10.0])
+
     def step(self, dt_s: float) -> None:
         if self.state == "idle":
             return
-        goal = self.target if self.state == "approach" else self.home
+        if self.state == "approach":
+            goal = np.asarray(self.target() if callable(self.target) else self.target, dtype=float)
+        else:
+            goal = self.home
         d = goal - self.pos
         dist = np.linalg.norm(d)
         stop = self.stop_dist if self.state == "approach" else 0.0
