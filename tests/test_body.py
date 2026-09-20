@@ -74,12 +74,12 @@ def test_escape_is_a_100ms_jump_up_and_back_then_normal_flight_resumes():
 def test_hand_approaches_stops_short_and_retreats():
     m = mujoco.MjModel.from_xml_string(build_mjcf(1))
     d = mujoco.MjData(m)
-    hand = Hand(m, d, speed=1.0, stop_dist=0.2)
+    hand = Hand(m, d, speed=1.0, stop_short=0.2)
     home = hand.pos.copy()
     hand.approach([0.0, 0.0, 1.0])
     closest = np.inf
     for _ in range(3000):
         hand.step(0.002)
         closest = min(closest, np.linalg.norm(hand.pos - [0, 0, 1]))
-    assert abs(closest - 0.2) < 0.01
+    assert abs(closest - (0.2 + hand.radius)) < 0.01
     assert hand.state == "idle" and np.allclose(hand.pos, home, atol=1e-6)

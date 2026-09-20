@@ -7,12 +7,14 @@ import numpy as np
 
 
 class Hand:
-    def __init__(self, model, data, name: str = "hand", speed: float = 1.0, stop_dist: float = 0.2):
+    def __init__(self, model, data, name: str = "hand", speed: float = 1.0, stop_short: float = 0.2):
+        """Approaches stop when the hand's *surface* is `stop_short` from the target."""
         self.m, self.d = model, data
         body = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, name)
         self.mocap_id = int(model.body_mocapid[body])
         self.home = data.mocap_pos[self.mocap_id].copy()
-        self.speed, self.stop_dist = speed, stop_dist
+        self.radius = float(model.geom_size[model.body_geomadr[body], 0])
+        self.speed, self.stop_dist = speed, stop_short + self.radius
         self.target: np.ndarray | None = None
         self.state = "idle"
 

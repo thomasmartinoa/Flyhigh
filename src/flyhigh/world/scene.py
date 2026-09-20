@@ -30,22 +30,29 @@ class RoomParams:
     timestep: float = 0.002
 
 
+def agent_group(i: int) -> int:
+    """Geom group of agent i's own geoms: its eyes render every group but this one (max 5 agents)."""
+    return 1 + i
+
+
 def agent_body(i: int, p: RoomParams, pos: tuple[float, float, float]) -> str:
     s = p.body_size
+    g = agent_group(i)
     cams = "".join(
         f'<camera name="agent{i}_{face}" pos="0 0 0" xyaxes="{axes}" fovy="{FACE_FOVY}"/>'
         for face, axes in FACES.items()
     )
     rotors = "".join(
         f'<geom type="cylinder" size="{0.6 * s} 0.003" pos="{x * s * 1.4} {y * s * 1.4} {s}" '
-        f'rgba="0.1 0.1 0.1 1" mass="0"/>'
+        f'rgba="0.1 0.1 0.1 1" mass="0" group="{g}"/>'
         for x, y in ((1, 1), (1, -1), (-1, 1), (-1, -1))
     )
     return (
         f'<body name="agent{i}" pos="{pos[0]} {pos[1]} {pos[2]}">'
         f"<freejoint/>"
-        f'<geom type="box" size="{s} {s} {0.4 * s}" rgba="0.05 0.05 0.05 1" mass="{p.body_mass}"/>'
-        f'<geom type="box" size="{0.4 * s} {0.2 * s} {0.1 * s}" pos="{s} 0 0" rgba="0.8 0.1 0.1 1" mass="0"/>'
+        f'<geom type="box" size="{s} {s} {0.4 * s}" rgba="0.05 0.05 0.05 1" mass="{p.body_mass}" group="{g}"/>'
+        f'<geom type="box" size="{0.4 * s} {0.2 * s} {0.1 * s}" pos="{s} 0 0" rgba="0.8 0.1 0.1 1" mass="0" '
+        f'group="{g}"/>'
         f"{rotors}{cams}</body>"
     )
 
@@ -65,7 +72,7 @@ def build_mjcf(n_agents: int = 2, p: RoomParams | None = None, start=None) -> st
     )
     return f"""<mujoco model="the_box">
   <option timestep="{p.timestep}" gravity="0 0 -9.81"/>
-  <visual><global offwidth="640" offheight="480"/><headlight ambient="0.5 0.5 0.5" diffuse="0.6 0.6 0.6"/></visual>
+  <visual><global offwidth="640" offheight="480"/><map znear="0.002"/><headlight ambient="0.5 0.5 0.5" diffuse="0.6 0.6 0.6"/></visual>
   <asset>
     <texture name="grid" type="2d" builtin="checker" rgb1="0.15 0.15 0.15" rgb2="0.85 0.85 0.85" width="128" height="128"/>
     <material name="grid" texture="grid" texrepeat="{rep} {rep}" texuniform="true"/>

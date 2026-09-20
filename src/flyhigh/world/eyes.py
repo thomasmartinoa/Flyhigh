@@ -10,7 +10,7 @@ from __future__ import annotations
 import numpy as np
 
 from flyhigh.senses.frame import PanoramicFrame
-from flyhigh.world.scene import FACE_FOVY, FACES
+from flyhigh.world.scene import FACE_FOVY, FACES, agent_group
 
 
 def bearing_to_direction(az_deg, el_deg):
@@ -24,6 +24,9 @@ class CubemapPanorama:
         import mujoco
 
         self.face_px, self.h, self.w = face_px, h, w
+        self.opt = mujoco.MjvOption()  # everything but the agent's own body
+        self.opt.geomgroup[:] = 1
+        self.opt.geomgroup[agent_group(agent)] = 0
         self.cam_ids = {f: mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_CAMERA, f"agent{agent}_{f}") for f in FACES}
         frame = PanoramicFrame.grey(h=h, w=w)
         azg, elg = frame.angular_grid()
@@ -51,7 +54,7 @@ class CubemapPanorama:
         """`renderer`: a mujoco.Renderer of size (face_px, face_px), shared across agents."""
         lum = np.full(self.h * self.w, 0.5, dtype=np.float32)
         for k, cid in enumerate(self.cam_ids.values()):
-            renderer.update_scene(data, camera=cid)
+            renderer.update_scene(data, camera=cid, scene_option=self.opt)
             rgb = renderer.render()
             grey = (rgb @ np.array([0.299, 0.587, 0.114], dtype=np.float32)) / 255.0
             m = self.face_of == k
