@@ -15,6 +15,9 @@ dependencies = [
     "tqdm>=4.66",
     "requests>=2.32",
     "flyvis>=1.1",
+    "mujoco>=3.3",
+    "imageio>=2.34",
+    "imageio-ffmpeg>=0.5",
 ]
 
 [project.optional-dependencies]
