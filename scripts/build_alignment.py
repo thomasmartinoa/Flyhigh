@@ -2,14 +2,16 @@
 """Build data/cache/alignment.parquet from the real connectome and the flyvis model; print a report.
 
 Steps: (1) give T4/T5 and the other unlabelled columnar types a column from their partners,
-(2) pick the lattice symmetry from Mi9/Mi4→T4 and Tm9/Tm4/Tm2→T5 offsets, (3) match columns.
+(2) pick the lattice symmetry from Mi9/Mi4→T4 and Tm9/Tm4/Tm2→T5 offsets, (3) match columns,
+(4) cross-check: through this alignment LPLC2's T4/T5 inputs must form an expansion detector.
 """
 import numpy as np
 import polars as pl
 
 from flyhigh.data.connectome import Connectome
 from flyhigh.senses.alignment import ColumnAlignment, choose_symmetry
-from flyhigh.senses.columns import infer_columns, partner_offsets
+from flyhigh.senses.columns import infer_columns, partner_offsets, radial_index
+from flyhigh.senses.eye import EyeGeometry
 from flyhigh.senses.flyvis_eye import FlyvisEye
 from flyhigh.senses.type_map import mcns_types
 
@@ -38,3 +40,10 @@ print("matched rows:", al.table.height, " flyvis neurons:", eye.n_neurons, "x 2 
 cov = pl.DataFrame({"type": list(al.coverage), "coverage": list(al.coverage.values())}).sort("coverage")
 print(cov.head(12)); print("mean coverage:", cov["coverage"].mean())
 print("types with zero coverage (add to type_map or accept):", cov.filter(pl.col("coverage") == 0)["type"].to_list())
+
+geo = {s: EyeGeometry(s) for s in ("L", "R")}
+col_of = {(int(u), int(v)): i for i, (u, v) in enumerate(zip(geo["R"].u, geo["R"].v))}
+fv_col = np.array([col_of[(int(u), int(v))] for u, v in zip(eye.u, eye.v)])
+ri = radial_index(neurons, c.edges, al, fv_col, geo, "LPLC2")
+print(f"LPLC2 radial index through this alignment: mean {ri.mean():+.2f} (n={len(ri)}; +1 = expansion detector, "
+      f"expect > +0.5; a negative value means the lattice is rotated by 180°)")

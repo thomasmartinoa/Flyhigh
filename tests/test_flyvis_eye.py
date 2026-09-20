@@ -66,6 +66,12 @@ def test_edge_offsets_have_the_known_t4_geometry(eye):
     assert row["du"] == 0 and row["dv"] == 0  # L1 -> Mi1 is same-column
     mi9 = off.filter((pl.col("s") == "Mi9") & pl.col("t").str.starts_with("T4"))
     assert mi9.height == 4 and (mi9.select(pl.col("du") ** 2 + pl.col("dv") ** 2).min().item() > 0)
+    # sign: source − target, like columns.partner_offsets (flyvis's own du is target − source)
+    e = eye.net.connectome.edges
+    m = (e.source_type[:] == b"Mi9") & (e.target_type[:] == b"T4a")
+    want = np.average(e.source_u[:][m] - e.target_u[:][m], weights=e.n_syn[:][m])
+    got = mi9.filter(pl.col("t") == "T4a")["du"][0]
+    assert got == pytest.approx(want) and got == pytest.approx(-np.average(e.du[:][m], weights=e.n_syn[:][m]))
 
 
 def _grating_frames(axis, deg_per_s, n=40, wavelength_deg=30):

@@ -10,6 +10,7 @@ partners were themselves unlabelled (T4 → LPLC2-side TmY types → …).
 
 from __future__ import annotations
 
+import numpy as np
 import polars as pl
 
 from flyhigh.senses.alignment import mcns_to_axial
@@ -110,3 +111,39 @@ def partner_offsets(neurons: pl.DataFrame, edges: pl.DataFrame, pairs) -> pl.Dat
         .with_columns(pl.col("du") / pl.col("n"), pl.col("dv") / pl.col("n"))
         .sort("t", "s")
     )
+
+
+def radial_index(neurons: pl.DataFrame, edges: pl.DataFrame, alignment, fv_col, geometries, post_type: str,
+                 min_inputs: int = 20) -> np.ndarray:
+    """Expansion selectivity of `post_type`'s T4/T5 inputs, per cell, as seen through an alignment:
+    +1 if every input's preferred direction points away from the cell's receptive-field centre
+    (a looming detector, e.g. LPLC2), −1 if towards it, ~0 if unrelated. A pure-anatomy cross-check
+    of the lattice symmetry: only the true one makes LPLC2 a looming detector.
+
+    `fv_col[fv_index]` is the flyvis neuron's column index into `geometries[eye].az_deg/el_deg`."""
+    typ = neurons["type"].to_numpy(); side = neurons["side"].to_numpy()
+    t45 = np.isin(typ, [f"T{k}{d}" for k in "45" for d in "abcd"])
+    pos = {}
+    for fv, s, lif in zip(alignment.table["fv_index"].to_numpy(), alignment.table["eye"].to_numpy(),
+                          alignment.table["lif_index"].to_numpy()):
+        if t45[lif]:
+            pos[lif] = (geometries[s].az_deg[fv_col[fv]], geometries[s].el_deg[fv_col[fv]])
+    pd_of = {"a": (1.0, 0.0), "b": (-1.0, 0.0), "c": (0.0, 1.0), "d": (0.0, -1.0)}  # right eye: +az = front-to-back
+    post = np.where(typ == post_type)[0]
+    e = edges.filter(pl.col("post_idx").is_in(post.tolist()) & pl.col("pre_idx").is_in(np.where(t45)[0].tolist()))
+    e = e.select("pre_idx", "post_idx", "syn_count").to_numpy()
+    out = []
+    for p in post:
+        rows = [(pre, w) for pre, q, w in e[e[:, 1] == p] if pre in pos]
+        if len(rows) < min_inputs:
+            continue
+        P = np.array([pos[pre] for pre, _ in rows]); W = np.array([w for _, w in rows], dtype=float)
+        centre = (P * W[:, None]).sum(0) / W.sum()
+        sgn = 1.0 if side[p] == "R" else -1.0
+        cosines = []
+        for (pre, _), pp in zip(rows, P):
+            pd = np.array(pd_of[typ[pre][-1]]); pd[0] *= sgn
+            r = pp - centre; nr = np.linalg.norm(r)
+            cosines.append(0.0 if nr < 1e-6 else float(np.dot(r / nr, pd)))
+        out.append(np.average(cosines, weights=W))
+    return np.array(out)

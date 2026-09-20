@@ -37,11 +37,14 @@ class FlyvisEye:
     def edge_offsets(self) -> pl.DataFrame:
         """flyvis's synapse-count-weighted mean column offset (source − target, axial u/v) per
         (source_type, target_type): the retinotopic geometry the model was built with.
-        Columns s, t, du, dv, n -- the same shape as `columns.partner_offsets`."""
+        Columns s, t, du, dv, n -- the same shape and sign as `columns.partner_offsets`.
+        (flyvis stores du = target − source; getting this sign wrong once rotated the whole
+        eye by 180° and turned LPLC2 into a contraction detector.)"""
         e = self.net.connectome.edges
         df = pl.DataFrame({
             "s": [t.decode() for t in e.source_type[:]], "t": [t.decode() for t in e.target_type[:]],
-            "du": np.asarray(e.du[:], dtype=float), "dv": np.asarray(e.dv[:], dtype=float),
+            "du": np.asarray(e.source_u[:] - e.target_u[:], dtype=float),
+            "dv": np.asarray(e.source_v[:] - e.target_v[:], dtype=float),
             "n": np.asarray(e.n_syn[:], dtype=float),
         })
         return (
