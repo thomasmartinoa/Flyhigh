@@ -6,6 +6,7 @@ import pytest
 import torch
 
 from flyhigh.brain.lif import LIFBrain, ShiuParams
+from flyhigh.brain.recorder import SpikeRecorder
 from flyhigh.data.connectome import Connectome
 
 
@@ -205,3 +206,53 @@ def test_male_cns_preset_exempts_sensory_neurons_from_depression():
     brain = LIFBrain.for_male_cns(c, device="cpu")
     assert brain.p.w_syn_mv == MALE_CNS_W_SYN and brain.std
     assert brain._std_u[0] == 0.0 and brain._std_u[1] == MALE_CNS_STD_U
+
+
+@pytest.mark.parametrize("prop", ["event", "spmv"])
+def test_driven_only_neurons_ignore_their_synapses_but_still_spike_from_ext_i(prop):
+    c = make_connectome(2, [(0, 1, 300)])
+    drive = torch.zeros(1, 2); drive[0, 0] = 30.0
+    brain = LIFBrain(c, device="cpu", propagation=prop, driven_only=[1])
+    rec = brain.run(3_000, ext_i=drive, recorder=SpikeRecorder())
+    assert rec.counts[0, 0] > 0 and rec.counts[0, 1] == 0  # the 300-synapse input is cut
+    drive2 = drive.clone(); drive2[0, 1] = 30.0
+    rec2 = LIFBrain(c, device="cpu", propagation=prop, driven_only=[1]).run(
+        3_000, ext_i=drive2, recorder=SpikeRecorder())
+    assert rec2.counts[0, 1] > 0
+    # ... and without driven_only the same wiring does excite neuron 1
+    rec3 = LIFBrain(c, device="cpu", propagation=prop).run(3_000, ext_i=drive, recorder=SpikeRecorder())
+    assert rec3.counts[0, 1] > 0
+
+
+def test_driven_only_keeps_outgoing_synapses():
+    c = make_connectome(2, [(1, 0, 300)])
+    drive = torch.zeros(1, 2); drive[0, 1] = 30.0
+    rec = LIFBrain(c, device="cpu", driven_only=[1]).run(3_000, ext_i=drive, recorder=SpikeRecorder())
+    assert rec.counts[0, 1] > 0 and rec.counts[0, 0] > 0
+
+
+@pytest.mark.parametrize("prop", ["event", "spmv"])
+def test_inh_scale_multiplies_only_inhibitory_weights(prop):
+    c = make_connectome(3, [(0, 2, 10), (1, 2, -10)])
+    plain = LIFBrain(c, device="cpu", propagation=prop)
+    scaled = LIFBrain(c, device="cpu", propagation=prop, inh_scale=2.0)
+    kick = torch.zeros(1, 3)
+    for brain, expect in ((plain, 0.0), (scaled, -10 * P.w_syn_mv)):
+        # fire 0 and 1 together: +10 and -10 synapses cancel unless inhibition is scaled
+        kick[:] = 0; kick[0, 0] = kick[0, 1] = 100.0
+        brain.step(ext_v=kick)
+        for _ in range(brain.delay_steps):
+            brain.step()
+        assert brain.g[0, 2].item() == pytest.approx(expect, abs=1e-6)
+
+
+@pytest.mark.parametrize("prop", ["event", "spmv"])
+def test_inh_scale_pre_restricts_the_scaling_to_listed_presynaptic_neurons(prop):
+    c = make_connectome(4, [(0, 3, 10), (1, 3, -10), (2, 3, -10)])
+    brain = LIFBrain(c, device="cpu", propagation=prop, inh_scale=3.0, inh_scale_pre=[2])
+    kick = torch.zeros(1, 4); kick[0, :3] = 100.0
+    brain.step(ext_v=kick)
+    for _ in range(brain.delay_steps):
+        brain.step()
+    # +10 -10 -30 synapses
+    assert brain.g[0, 3].item() == pytest.approx(-30 * P.w_syn_mv, abs=1e-6)
