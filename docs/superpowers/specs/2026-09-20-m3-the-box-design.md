@@ -1,7 +1,8 @@
 # M3 — The Box: design
 
-Date: 2026-09-20. Status: draft, implemented in the same session; decisions marked *(decision)*
-are the author's and can be overturned.
+Date: 2026-09-20. Status: implemented the same day; decisions marked *(decision)* are the
+author's. **As built** notes record where implementation overturned the draft and why
+(details in `docs/04-the-box.md`).
 
 ## Goal
 
@@ -21,19 +22,27 @@ finding, not silently tuned.
 
 ## The room
 
-A 4 × 4 × 3 m box *(decision: metres, not fly scale — the eye has 5° columns, so what matters is
+**As built:** 6 × 6 × 3 m, an optomotor *drum* — vertical stripes (0.75 m period) on the side
+walls only, plain grey floor, ceiling and end walls. Checkered walls and floor made the looming
+detectors fire at the room itself when the flies flew forward, and at 4 m the flies' own cruise
+past the stripes tripped the giant fiber in most runs.
+
+*Draft:* A 4 × 4 × 3 m box *(decision: metres, not fly scale — the eye has 5° columns, so what matters is
 angular size; a 10 cm drone at 1 m subtends 6°, a 30 cm hand at 50 cm subtends 33°)*. Walls,
 floor and ceiling carry a high-contrast checker texture (period ~0.25 m ≈ 7° at 2 m) so that
 self-rotation produces wide-field optic flow for the optomotor reflex. One directional light
 plus ambient so no wall is black.
 
-The **hand** is a 30 cm dark sphere on a `mocap` body driven by a script: it idles in a corner,
-then moves toward a chosen drone along a straight line at 1 m/s (`Hand.approach(target)`),
-stops 20 cm short and retreats. This is the M2 looming disc made physical.
+The **hand** is a 30 cm dark sphere on a `mocap` body driven by a script: it idles ahead-right of
+fly 0 (**as built:** over a plain wall — over the striped wall the loom escaped in 1 run of 4),
+then moves toward a chosen drone at 1 m/s *following it* (`Hand.approach(target)` takes a
+callable), stops with its surface 20 cm short and retreats. This is the M2 looming disc made
+physical.
 
 ## The bodies
 
-Two **flying bricks** *(decision)*: a 10 cm box with four cosmetic rotor discs on a free joint,
+Two **flying bricks** *(decision)*: a 30 cm box (**as built**; a 10 cm fly reaches the ~40°
+escape size only at contact, a 30 cm one at 0.4 m) with four cosmetic rotor discs on a free joint,
 mass 30 g, controlled by body-frame forces and torques (`data.xfrc_applied`) from a velocity
 controller — not by rotor thrusts. Reason: M3 is about brains reacting, and a rotor-level
 quadrotor needs an attitude controller that is a project of its own; a real drone (M5) brings
@@ -44,7 +53,7 @@ its own flight controller anyway. Gravity, inertia, drag and collisions are real
 
 | channel | target |
 |---|---|
-| `forward` ∈ −1..1 | body-frame forward speed `v_max · forward`, `v_max` = 1 m/s |
+| `forward` ∈ −1..1 | body-frame forward speed `v_max · forward`, `v_max` = 2.5 m/s (**as built**; 0.5 m/s at the 0.2 bias so two flies loom at ~70°/s) |
 | `yaw` ∈ −1..1 | yaw rate `ω_max · yaw`, `ω_max` = 180°/s, + = right |
 | `lift` ∈ −1..1 | vertical speed `vz_max · lift`, `vz_max` = 0.5 m/s |
 | `escape` | for 100 ms: override with up 2 m/s and backward 1 m/s, then resume |
@@ -76,10 +85,21 @@ per tick, each agent's position, yaw, command, GF/HS rates, and the hand positio
 `VideoWriter`: a third-person camera on the room plus one agent's panorama, written with
 `imageio` to mp4 at 25 fps (every 4th tick).
 
-Agents start hovering at 1 m, 1.5 m apart, facing each other's general direction (yaw ±30°)
-so each drone lies in the other's frontal field.
+Agents start hovering at 1 m, 1.5 m apart, offset 0.4 m sideways, facing each other. A new
+`Simulation` lets the brain look at the still room for 0.5 s first (**as built**: a brain that
+woke on grey startles at a room appearing). `hide_agent` makes a fly a ghost — invisible *and*
+without contacts — for control runs.
 
 ## Validation (`scripts/validate_box.py`)
+
+**As built:** the hover and hand experiments run with the readout's forward bias off (the
+flies hover; everything else is the brain); the hand check is "escapes during the approach,
+before contact, and only the targeted fly" (the escape comes at 39–47°, M2's marginal size);
+the optomotor disturbance is a sustained 30°/s for 500 ms (a 100 ms kick is damped by the body's
+own rate loop before the brain answers) and the criterion is the sign of the mean command;
+the two-fly experiment runs 2.5 s (the encounter; later the flies reach the end walls, whose
+corners loom) with ghosts as the control; the hand and two-fly experiments run three times and
+pass by majority (CUDA nondeterminism makes identical runs differ like trials on a fly).
 
 1. **Hover.** 3 s, hand idle, brains connected: both bodies stay within 0.3 m of their start
    height, inside the room, and roll/pitch stay < 5°. (The brain's forward bias 0.2 means they

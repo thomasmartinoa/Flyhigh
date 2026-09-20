@@ -98,7 +98,7 @@ def build_mjcf(n_agents: int = 2, p: RoomParams | None = None, start=None) -> st
     <body name="hand" mocap="true" pos="{p.hand_home[0]} {p.hand_home[1]} {p.hand_home[2]}">
       <geom type="sphere" size="{p.hand_radius}" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0"/>
     </body>
-    <camera name="overview" pos="0 -{y + 2.5} {p.size[2] + 1.5}" xyaxes="1 0 0 0 0.55 0.83"/>
+    <camera name="overview" pos="0 {-y + 0.2} {p.size[2] - 0.2}" xyaxes="1 0 0 0 0.7 0.7" fovy="80"/>
     {"".join(agent_body(i, p, s) for i, s in enumerate(start[:n_agents]))}
   </worldbody>
 </mujoco>"""
