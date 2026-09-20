@@ -21,11 +21,12 @@ from flyhigh.senses.eye import EyeGeometry, EyeSampler
 from flyhigh.senses.flyvis_eye import FlyvisEye
 from flyhigh.senses.frame import TICK_MS, PanoramicFrame
 
-# Chosen by effect with scripts/calibrate_bridge.py (table in docs/03-see-and-move.md): the gain is
-# bounded above by the LIF's over-excitable tangential cells and giant fiber (HS saturate near
-# 200 Hz and a plain grating fires the GF at gain >= 18), not by T4/T5 rates, which stay below
-# their physiological 50-100 Hz. Per-type overrides go in DEFAULT_GAINS.
-DEFAULT_GAINS: dict[str, float] = {}
+# Chosen by effect (scripts/calibrate_bridge.py, docs/03-see-and-move.md §3). The two reflexes
+# want opposite things from T4/T5: HS cells, fed by T4a/T5a through ~28 synapses per cell, lose
+# their direction selectivity above gain ~18 (a coincidence of spikes fires them and Shiu's
+# g = 0 reset wipes the inhibition), while the looming detectors need the OFF-edge cells
+# T5b/c/d at 100+ Hz. So the base gain is low and the loom-pathway T5 subtypes are boosted.
+DEFAULT_GAINS: dict[str, float] = {"T5b": 120.0, "T5c": 120.0, "T5d": 120.0}
 DEFAULT_GAIN = 15.0
 
 
@@ -35,7 +36,8 @@ class FlyAgent:
 
     def __init__(self, connectome: Connectome, n_agents: int = 1, gains: dict[str, float] | None = None,
                  params: ReadoutParams | None = None, alignment_path="data/cache/alignment.parquet",
-                 frame_shape=(180, 360), device="cuda"):
+                 frame_shape=(180, 360), device="cuda", **brain_kw):
+        """brain_kw goes to LIFBrain.for_male_cns (e.g. inh_scale=...) for calibration runs."""
         sampler = EyeSampler(frame_shape, [EyeGeometry("L"), EyeGeometry("R")])
         eye = FlyvisEye()
         eye.reset(batch_size=2 * n_agents)
@@ -43,7 +45,7 @@ class FlyAgent:
         bridge = FlyvisBridge(alignment, eye.types, eye.rest, connectome.n_neurons,
                               gains if gains is not None else DEFAULT_GAINS, DEFAULT_GAIN)
         brain = LIFBrain.for_male_cns(connectome, n_agents=n_agents, device=device,
-                                      driven_only=bridge.driven_indices)
+                                      driven_only=bridge.driven_indices, **brain_kw)
         self._init(sampler, eye, bridge, brain, Readout(connectome, params))
 
     @classmethod

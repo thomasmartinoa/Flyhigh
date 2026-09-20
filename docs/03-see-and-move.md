@@ -3,8 +3,9 @@
 M1 gave the connectome a spiking brain. M2 puts a picture of the world in front of it and reads
 motor commands out of the back, so that a video goes in and `MotorCommand(forward, yaw, lift,
 escape)` comes out. Two reflexes are the yardstick: the **optomotor turn** (the fly turns with a
-rotating scene) and the **looming escape** (an expanding shadow fires the giant fiber). The first
-works end-to-end; the second does not yet, and the last section says exactly why.
+rotating scene) and the **looming escape** (an expanding shadow fires the giant fiber). Both
+work end-to-end — the second only after three bugs and two calibrations that section 5 tells
+in order, because finding them was most of the milestone.
 
 ```
 world frame ─► PanoramicFrame ─► EyeSampler ─► flyvis ─► FlyvisBridge ─► LIFBrain ─► Readout ─► MotorCommand
@@ -65,8 +66,13 @@ Wiring the two together means saying which male-CNS neuron sits in which flyvis 
   symmetric disc, all 12 tie). The *direction* of known synapses can: Mi9 sits one column to the
   preferred side of the T4 it feeds. `choose_symmetry` compares the Mi9/Mi4→T4a–d and
   Tm9/Tm4/Tm2→T5a–d offsets in flyvis (`FlyvisEye.edge_offsets`) with the connectome's
-  (`columns.partner_offsets`): the reflection `('x','y')` wins on both eyes with an rms
-  mismatch of 0.55 columns against 0.77 for the runner-up.
+  (`columns.partner_offsets`): `('-x','-y')` wins on both eyes with an rms mismatch of 0.55
+  columns against 0.77 for the runner-up. (flyvis stores `du` as target − source; reading it
+  the other way round once picked the 180°-rotated symmetry — see section 5.)
+- **The anatomy checks the answer.** LPLC2 is a looming detector because each of its T4/T5
+  inputs prefers motion *away* from the cell's receptive-field centre. `columns.radial_index`
+  computes that through an alignment: +0.68 for `('-x','-y')`, −0.68 for its 180° twin, ~0 for
+  the other ten. `build_alignment.py` prints it every build.
 
 Result: 61,503 (flyvis neuron, LIF neuron) pairs, 56,218 driven LIF neurons. Coverage per
 flyvis type (fraction of its 721 cells with a partner on the right eye):
@@ -87,13 +93,13 @@ lattice by 180° so that T4a = front-to-back and T4c = up; a test pins all three
 preferences. Without it HS would have been fed the wrong subtype and the optomotor sign would
 have come out reversed.
 
-## 3. The bridge and its calibration
+## 3. The bridge, the brain, and their calibration
 
 `FlyvisBridge`: `ext_i[agent, lif] = gain[type] · max(activity − rest, 0)`, with `rest` the
 per-neuron steady state after 2 s of grey (so a grey screen injects nothing — measured
 < 1e-4 mV) and the sum over a column's flyvis cells weighted 1/k when several stand for one LIF
 neuron (the six R1–R6). `scripts/calibrate_bridge.py` sweeps one gain for all types on a 60°/s
-grating:
+grating (M1 brain preset, before the changes below):
 
 | gain | T4/T5 mean | T4/T5 p90 (driven) | LC4/LPLC2 | HS | GF | active neurons |
 |---|---|---|---|---|---|---|
@@ -104,12 +110,14 @@ grating:
 | 80 | 33.5 | 96 | 16.1 | 228 | 121 | 53,040 |
 
 Grey gives 0 Hz everywhere at every gain. The plan's target was T4/T5 at 50–100 Hz (their
-measured range), i.e. gain ≈ 40. That is not the gain we ship, because the checks bound it
-from above: at gain ≥ 18 a plain grating already fires the giant fiber (a false escape, which
-also zeroes `yaw`), and HS saturate near 200 Hz — refractory-limited — which compresses their
-left/right difference to a few per cent. Choosing by effect, as M1 chose `w_syn`:
+measured range), i.e. gain ≈ 40. That is not the base gain we ship, because the optomotor
+check bounds it from above: HS cells receive ~20k synapses from T4a/T5a (28 per cell, 5.6 mV per
+spike), so above gain ≈ 18 any coincidence of a few spikes fires them, Shiu's `g = 0` reset then
+wipes the inhibition that had accumulated, and they sit near 200 Hz in *both* directions
+(null-direction HS: +448k weighted excitatory spikes, −634k inhibitory, 191 Hz). Selectivity
+survives only when T4a/T5a fire sparsely. Choosing by effect, as M1 chose `w_syn`:
 
-| gain | optomotor yaw cw / ccw | false-escape ticks (cw, ccw, receding) | T4/T5 p90 |
+| gain (all types) | optomotor yaw cw / ccw | false-escape ticks (cw, ccw, receding) | T4/T5 p90 |
 |---|---|---|---|
 | 15 | +0.85 / −0.88 | 0, 0, 0 | 20 Hz |
 | 18 | +0.43 / −0.50 | 0, 1, 0 | 26 |
@@ -117,8 +125,28 @@ left/right difference to a few per cent. Choosing by effect, as M1 chose `w_syn`
 | 30 | +0.08 / −0.07 | 8, 11, 3 | 44 |
 | 40 | +0.01 / −0.02 | 26, 21, 2 | 56 |
 
-**`DEFAULT_GAIN = 15`.** The LIF's tangential cells and giant fiber are far more excitable than
-their real counterparts; the T4/T5 themselves end up at a fifth of physiological rates.
+The looming detectors want the opposite: LPLC2 needs its OFF-edge inputs (T5b/c/d, ~3 synapses
+per cell) at 100+ Hz. The two reflexes read almost disjoint T4/T5 subtypes (HS ← T4a/T5a;
+LPLC2 ← T5b/c/d, T4c/d), so the bridge ships `DEFAULT_GAIN = 15` with
+`DEFAULT_GAINS = {T5b, T5c, T5d: 120}`. That still did nothing for the loom until two things
+in the *brain* changed (`LIFBrain.for_male_cns`; M1's central calibration is untouched and
+its two validation scripts still pass):
+
+- **Short-term depression is off inside the optic lobe.** M1 added STD (u = 0.2, τ = 300 ms) to
+  stop the male-CNS graph igniting, exempting sensory neurons. T4/T5 are `ol_intrinsic`, and
+  at 130 Hz their outputs deplete to 11 %: the best-placed LPLC2 received ~840 weighted
+  synapse-spikes per 10 ms at the end of a loom — enough to fire any LIF neuron flat out —
+  and sat at −45.01 mV against a −45 mV threshold. Under the ownership rule the flyvis-driven
+  optic lobe *is* the sensory periphery; `ol_intrinsic` and `ol_sensory` neurons are now
+  exempt like the sensory ones. Their projections into the central brain (LC4, LPLC2 → GF)
+  keep M1's depression: exempting those too pushed looming-by-activation over M1's 2 %
+  locality bound.
+- **Optic-lobe inhibition is ×8.** For a grating, inhibition onto LC4 cancelled 91 % of the
+  excitation instead of exceeding it, so the giant fiber fired for wide-field motion before
+  it fired for a loom. `inh_scale` with `inh_scale_pre` multiplies the inhibitory weights of
+  the optic-lobe intrinsic interneurons (LPi, Li, Am1, Dm, Pm …). It has to be regional: a
+  global ×2 already silences the M1 gustatory circuit (MN9 6 → 1 Hz), ×8 on the optic lobe
+  leaves it at 6 Hz.
 
 ## 4. Descending neurons: the bottleneck and the four channels
 
@@ -149,59 +177,75 @@ brain; the yaw signal is carried by HS.
 ```
 [silence]   escape=False yaw=+0.000 fwd=0.200 lift=+0.000  DN spikes in 1 s=0
     -> ok: silence
-[escape]    first escape tick=None  disc diameter then=None  GF rate at end=0 Hz  LC4/LPLC2 mean 0.0 Hz, max 0 Hz
-    -> FAIL: escape before 40°
-[receding]  escape after onset=False
-    -> ok: no escape for receding disc
-[optomotor] cw: mean yaw +0.889, fraction with the right sign = 1.00, escapes = 0
-[optomotor] ccw: mean yaw -0.888, fraction with the right sign = 1.00, escapes = 0
+[escape]    first escape tick=51  disc diameter then=39.795918367346935  GF rate at end=0 Hz  LC4/LPLC2 mean 1.9 Hz, max 100 Hz
+    -> ok: escape before 40°
+[receding]  escape after onset=True  (escape ticks: [7, 8, 9, 10])
+    -> FAIL: no escape for receding disc
+[receding]  after 300 ms visible: escapes during the receding motion = 0 (startle ticks while static: [7, 8, 9])
+[optomotor] cw: mean yaw +0.673, fraction with the right sign = 1.00, escapes = 0
+[optomotor] ccw: mean yaw -0.720, fraction with the right sign = 1.00, escapes = 0
     -> ok: optomotor cw > +0.3
     -> ok: optomotor ccw < -0.3
     -> ok: optomotor mirror within 20 %
-[two agents] agent0 escape=False agent1 escape=False
-    -> FAIL: two agents independent
-[two agents] optomotor: agent0 (grating) yaw +0.846, agent1 (grey) yaw +0.000
-[speed]     1 agent(s): 40.3 ticks/s
+[two agents] agent0 escape=True agent1 escape=False
+    -> ok: two agents independent
+[two agents] optomotor: agent0 (grating) yaw +0.715, agent1 (grey) yaw +0.000
+[speed]     1 agent(s): 38.3 ticks/s
     -> ok: speed 1 agent(s) >= 10 ticks/s
-[speed]     2 agent(s): 37.6 ticks/s
+[speed]     2 agent(s): 36.6 ticks/s
     -> ok: speed 2 agent(s) >= 10 ticks/s
 
-7/9 checks pass; failed: ['escape before 40°', 'two agents independent']
+8/9 checks pass; failed: ['no escape for receding disc']
+FAIL
 ```
 
 **What works.** A rotating world produces a clean, mirror-symmetric optomotor turn of the right
 sign through 721 columns × 2 eyes of flyvis, 56k driven neurons, the real T4/T5 → HS wiring and
-a two-line readout, with the correct sign falling out of the anatomy. Two agents run as one
-batch and do not leak into each other (the second two-agent line: the agent on grey does
-nothing while its neighbour turns). The whole loop runs 4× real time.
+a two-line readout, with the sign falling out of the anatomy. An expanding dark disc on the
+right fires the giant fiber from about 30° on and the escape flag at 39.8°, through flyvis
+T5 → LIF T5b/c/d → LPLC2 → DNp01, with nothing hand-placed along the way; a static or receding
+disc, a grating and grey do not fire it once the disc has been visible for a while. Two agents
+run as one batch and do not leak into each other. The loop runs 4× real time.
 
-**What does not: the looming escape.** The checks were not touched; the diagnosis is:
+**How the looming escape was found, in order** — it did not fire from pixels at all for most of
+the milestone, and each step below was a measured dead end before the next:
 
-- flyvis sees the loom — ~550 T4/T5 cells active on the right eye by the end of the expansion,
-  peak activity 1.5 against 1.8 for the grating — and the LIF T4/T5 follow.
-- The signal dies at LC4/LPLC2. Over the 500 ms loom, LC4 receives +87k weighted excitatory
-  spikes and −45k inhibitory; the grating gives +915k / −829k. The net is similar, but the
-  loom's is spread evenly, so LC4 sits at −45.01 mV against a −45 mV threshold and only the ~5
-  LC4 whose field covers the disc fire, at 10–20 Hz; LPLC2 never fires (it would need ~6× the
-  drive). The giant fiber needs ~4 near-coincident LC4 spikes (50 synapses × 0.2 mV each, 7 mV
-  to threshold); the loom yields 1–4 LC4+LPLC2 spikes per 10 ms in total.
-- T2, LC4's largest input (46k synapses), contributes +476k for the grating and 0 for the dark
-  loom: flyvis's T2 *hyperpolarises* for a dark stimulus and the bridge clamps at zero. The loom
-  arrives through the OFF pathway (TmY3, Tm2, T5) instead.
-- Gains cannot fix it: tripling the OFF pathway's gain moved LC4/LPLC2 from 0.2 to 0.5 Hz on the
-  loom and made the grating false escape worse; dark-on-white contrast and a 250 ms loom change
-  nothing.
-- The root cause is the LIF's excitation/inhibition balance in the lobula. Real LC4/LPLC2 are
-  loom-specific *because* wide-field inhibition wins for gratings; in this brain it cancels
-  91 % of the excitation and the residual drives the giant fiber, while the loom's local drive
-  is ~5× too weak. Shiu et al. 2024 showed the loom→GF circuit by activating LC4/LPLC2
-  directly (M1's `validate_looming.py` reproduces that); reaching it from pixels needs an
-  M1-level recalibration (an inhibition scale, re-validated on the gustatory and looming
-  circuits) or a graded model of the lobula, not a bridge gain. That is the first item of M3.
+1. *Gain.* No global gain, no per-type gain (OFF pathway ×3), no contrast or speed made
+   LC4/LPLC2 fire for a loom, while every gain ≥ 18 fired the giant fiber for a grating.
+2. *Inhibition.* Scaling all inhibitory weights ×2–5 removed the grating false escapes exactly
+   as the excitation/inhibition ledger predicted (+915k / −829k weighted spikes into LC4 for a
+   grating) but left the loom at 0.2 Hz — and silenced M1's gustatory circuit.
+3. *The lattice was upside down.* With HS kept selective (T4a/T5a low) and T5b/c/d driven at
+   gain 300, LPLC2 still did nothing. Its T4/T5 inputs, placed in visual space through the
+   alignment, pointed *towards* the receptive-field centre (radial index −0.68): the eye was
+   wired as a contraction detector. Cause: flyvis's edge offsets are target − source and had
+   been read as source − target, so `choose_symmetry` had picked the 180°-rotated symmetry.
+   With the sign fixed the offsets and LPLC2's anatomy agree on `('-x','-y')` (+0.68).
+4. *Depression.* Wired correctly, the best LPLC2 received ~840 weighted synapse-spikes per
+   10 ms and still sat at threshold: M1's short-term depression cut T4/T5 outputs to 11 % at
+   130 Hz. Exempting the optic lobe's intrinsic neurons gave the first loom escape (49°).
+5. *Regional inhibition.* Un-depressed T4/T5 also drove the grating harder; ×8 on the optic
+   lobe's inhibitory interneurons (not globally — see section 3) gated it. Final tuning of
+   the T5b/c/d gain put the escape at 38–40°.
+
+**What does not pass: the receding-disc check.** The 60° disc *appearing* on grey fires the
+giant fiber 70–100 ms later (escape ticks 7–10) — an appearance startle, not a response to
+the receding motion: once the disc has been visible for 300 ms, its shrinking produces zero
+escapes, and a static disc produces the same startle ticks. The spec's check ignores the first
+50 ms after onset; this pipeline's flash latency (flyvis's ~40 ms photoreceptor-to-T5 delay
+plus the LIF chain) is 70 ms. The check is left as written rather than widened.
 
 **Honest limits.**
-- The gain is chosen by the reflexes, not by T4/T5 physiology; T4/T5 fire at ~20 Hz, HS at
-  ~50–140 Hz, both models of graded cells.
+- The looming escape is marginal: the GF fires ~1 spike per 20–40 ms during the loom, so the
+  spec's "50 Hz over 20 ms" (two spikes in a window) is met at 39.8° by a pair of spikes;
+  neighbouring gains give 38–54° or no pair at all. LC4 — biologically the GF's strongest
+  loom input — stays silent: its main input T2 hyperpolarises in flyvis for dark stimuli.
+- Gains are per pathway, not per physiology: T4a/T5a at 15 because HS cells lose selectivity
+  above ~18 (28 synapses per T4a, `g = 0` reset), T5b/c/d at 120 because LPLC2 needs it.
+  T4/T5 fire at 20–70 Hz, HS at ~100 Hz — both models of graded cells.
+- The optic-lobe rules in `for_male_cns` (STD exemption, inhibition ×8 for intrinsic
+  interneurons) are effect-calibrated on two reflexes. M1's gustatory and looming-by-activation
+  scripts still pass, but nothing else has been re-checked.
 - The readout is hand-written; `k_hs`, thresholds and the 20 ms window are guesses that
   happened to work. `lift` and `forward` are untested against anything.
 - Column inference places a multi-column neuron at the modal column of its partners (median

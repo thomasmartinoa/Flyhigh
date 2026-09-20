@@ -251,7 +251,7 @@ nb03 = [
 # 03 — See & move
 
 A picture of the world goes in, a motor command comes out: `PanoramicFrame → EyeSampler → flyvis → FlyvisBridge → LIFBrain → Readout`.
-Read `docs/03-see-and-move.md` alongside — especially section 5 for what works (the optomotor turn) and what does not yet (the looming escape).
+Read `docs/03-see-and-move.md` alongside — especially section 5 for how the looming escape was found (three bugs, two calibrations) and what is still marginal.
 
 Needs `data/raw`, the pretrained flyvis models (`uv run flyvis download-pretrained`) and `data/cache/alignment.parquet` (`uv run python scripts/build_alignment.py`)."""),
     code("""
@@ -311,7 +311,7 @@ for i, (d, name) in enumerate(((+1, "clockwise"), (-1, "anticlockwise"))):
 plt.suptitle("flyvis activity − rest, right eye", y=1.0); plt.tight_layout()"""),
     md("""
 ## 3. Descending neurons during a looming disc
-Spikes per 10 ms tick of the neurons the readout watches. The giant fiber (`DNp01`) should fire before the disc reaches 40° — in this brain it does not: LC4/LPLC2 are under-driven (see the doc, section 5)."""),
+Spikes per 10 ms tick of the neurons the readout watches. LPLC2 (below) ramps with the disc; the giant fiber (`DNp01`) starts firing single spikes around 30° and the readout's escape flag (two GF spikes in 20 ms) trips just under 40°. LC4 stays silent — see the doc, section 5, for why."""),
     code("""
 side = c.neurons["side"].to_numpy()
 def one(pattern, s): idx = c.ids_by_type(pattern); return int(idx[side[idx] == s][0])
@@ -355,7 +355,8 @@ print(f"1 agent: {tps:.1f} ticks/s  →  {tps / 100:.2f}× real time (100 Hz cam
     md("""
 ## Try it
 - Move the disc: `looming_disc(az=-60, ...)` — the left eye's HS/T4 should mirror everything.
-- `FlyAgent(c, gains={"T4a": 40, "T4b": 40, ...})` — raise the T4/T5 gain and watch the giant fiber start firing for the *grating* (section 3 of the doc).
+- `FlyAgent(c, gains={"T4a": 40, "T5a": 40})` — raise the HS-pathway gain and watch the optomotor yaw collapse as HS saturate (section 3 of the doc).
+- `FlyAgent(c, optic_inh_scale=1.0)` — M1's inhibition: the grating now fires the giant fiber.
 - Swap ensemble member: `FlyvisEye(model="flow/0000/007")` — flyvis has 50; T4d is weak in member 0."""),
 ]
 write("03_see_and_move.ipynb", nb03)

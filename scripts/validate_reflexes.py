@@ -66,8 +66,15 @@ def main():
     receding = [PanoramicFrame.grey()] * 20 + looming_disc(az=60, el=0, start_deg=60, end_deg=5, duration_ms=500)
     cmds = run(agent, [receding])
     any_escape = any(cm[0].escape for cm in cmds[25:])  # ignore the onset flash
-    print(f"[receding]  escape after onset={any_escape}")
+    print(f"[receding]  escape after onset={any_escape}  (escape ticks: {[i - 20 for i, cm in enumerate(cmds) if cm[0].escape]})")
     check("no escape for receding disc", not any_escape)
+    # (informative) the same disc receding after it has been visible for 300 ms: separates the
+    # appearance startle from a response to the receding motion itself
+    agent = None; agent = fresh(c, 1)
+    static = [looming_disc(az=60, el=0, start_deg=60, end_deg=60, duration_ms=10)[0]] * 30
+    cmds = run(agent, [static + looming_disc(az=60, el=0, start_deg=60, end_deg=5, duration_ms=500)])
+    print(f"[receding]  after 300 ms visible: escapes during the receding motion = {sum(cm[0].escape for cm in cmds[30:])}"
+          f" (startle ticks while static: {[i for i, cm in enumerate(cmds[:30]) if cm[0].escape]})")
 
     # 3. optomotor, both directions: the fly turns with the scene
     yaws = {}

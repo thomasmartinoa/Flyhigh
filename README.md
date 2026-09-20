@@ -10,8 +10,8 @@ wiring into a running spiking brain on a single GPU, then gives it eyes and a bo
 | milestone | what | status |
 |---|---|---|
 | **M1 Brain** | load the connectome, run all 165k neurons as leaky integrate-and-fire units on the GPU, reproduce published circuit results | ✅ done |
-| **M2 See & Move** | camera → flyvis optic lobe → LIF brain; descending neurons → motor commands | 🟡 optomotor turn ✅ · looming escape ✗ ([why](docs/03-see-and-move.md#5-results)) |
-| M3 The Box | MuJoCo room with two fly-brained quadrotors and a moving "hand"; they react to each other | next (starts with the lobula E/I recalibration) |
+| **M2 See & Move** | camera → flyvis optic lobe → LIF brain; descending neurons → motor commands (optomotor turn, looming escape) | ✅ done — 8 of 9 spec checks; the ninth is an appearance startle ([details](docs/03-see-and-move.md#5-results)) |
+| M3 The Box | MuJoCo room with two fly-brained quadrotors and a moving "hand"; they react to each other | next |
 | M4 flybody | swap in Janelia's anatomically detailed MuJoCo fly | |
 | M5 Real drone | the same brain flying a small drone in a room, reacting to you like a fly | |
 
@@ -56,7 +56,7 @@ left.yaw                                             # ≈ +0.9: the flies turn 
 
 - [`docs/01-connectome.md`](docs/01-connectome.md) — what the dataset is and isn't, the tables, the famous neurons
 - [`docs/02-lif-brain.md`](docs/02-lif-brain.md) — the neuron model, how we validated it against the published FlyWire model, why the male CNS needed its own calibration, and the honest limits
-- [`docs/03-see-and-move.md`](docs/03-see-and-move.md) — how a fly sees, why flyvis feeds the LIF, aligning two hex lattices, the bridge gain, the descending-neuron readout, and why the optomotor turn works but the looming escape does not yet
+- [`docs/03-see-and-move.md`](docs/03-see-and-move.md) — how a fly sees, why flyvis feeds the LIF, aligning two hex lattices (and how LPLC2's anatomy caught a 180° error), the optic-lobe calibration of the brain, the descending-neuron readout, and the five-step hunt for the looming escape
 - `notebooks/` — the same as runnable, plotted walkthroughs
 
 ## Layout

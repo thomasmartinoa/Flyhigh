@@ -147,5 +147,7 @@ and the PVLP interneurons — the escape circuit we will drive from the camera i
 - Weights are synapse counts × one constant; no synapse is actually 0.2 mV.
 - No neuromodulation, no plasticity, no gap junctions, no graded (non-spiking) neurons
   (many optic-lobe neurons are graded in reality).
-- The calibration is ours, made on one circuit; expect to revisit it when the eyes are
-  connected (M2) and the whole optic lobe is driven continuously.
+- The calibration is ours, made on one circuit. Connecting the eyes (M2) did require
+  revisiting it for the optic lobe — its intrinsic neurons are exempt from depression and
+  their inhibitory synapses are ×8 in `for_male_cns` — while the central calibration above
+  and both validation scripts are unchanged. See `docs/03-see-and-move.md` §3.
