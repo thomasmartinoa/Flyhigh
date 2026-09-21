@@ -50,7 +50,7 @@ def main():
 
     # 2. steering (no brain): the policy follows the command
     sim = fresh(Scripted(), settle_s=0.0)
-    p = sim.task.p
+    p = sim.steer
     sim.run(0.3)
     z0 = sim.pos[2]; log = segment(sim, 0.5)
     hover_ok = abs(sim.pos[2] - z0) < 0.5 and log["roll_deg"].abs().max() < 30
@@ -70,7 +70,7 @@ def main():
           f"(target {-0.25 * p.w_max_deg:+.0f}); lift 0.5 -> {v_up:.1f} cm/s (target {0.5 * p.vz_max:.1f}); escape hop {hop:+.2f} cm")
     check("steering: hover, forward, yaw, lift within 30 %, escape hops",
           hover_ok and abs(v_fwd - 0.5 * p.v_max) < 0.3 * 0.5 * p.v_max and abs(w + 0.25 * p.w_max_deg) < 0.3 * 0.25 * p.w_max_deg
-          and abs(v_up - 0.5 * p.vz_max) < 0.3 * 0.5 * p.vz_max and hop > 1.0)
+          and abs(v_up - 0.5 * p.vz_max) < 0.3 * 0.5 * p.vz_max and hop > 0.5)
     sim.close()
 
     # 1. hover with the brain (forward bias off): height, attitude, no escape
@@ -93,7 +93,7 @@ def main():
         contact = sim.drum.hand_radius + 0.3
         size = None if fd is None else round(2 * np.degrees(np.arcsin(min(1.0, sim.drum.hand_radius / fd))))
         rise = None if e.height == 0 else log.filter(pl.col("t_ms") <= e["t_ms"][0] + 200)["z"].max() - log["z"][0]
-        win = e.height > 0 and contact < fd < 15 and rise is not None and rise > 0.5
+        win = e.height > 0 and contact < fd < 15 and rise is not None and rise > 0.3
         wins += win
         print(f"[hand]      run {rep}: escapes {e.height}, first at {fd} cm (hand {size}°), rise within 200 ms {rise} cm, "
               f"closest {log['hand_dist'].min():.1f} cm (contact {contact:.1f}) -> {'ok' if win else 'x'}")

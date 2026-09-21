@@ -40,6 +40,11 @@ class FlightPolicy:
 
     def __call__(self, obs: dict) -> np.ndarray:
         """obs: the flight task's observation dict (numpy). Returns the action mean (12,)."""
+        return self.batch([obs])[0]
+
+    def batch(self, observations: list[dict]) -> np.ndarray:
+        """Several flies' observation dicts in one call. Returns (n, 12)."""
         tf = self.tf
-        batch = {k: tf.convert_to_tensor(np.asarray(obs[k], dtype=np.float32)[None]) for k in self.keys}
-        return self._fn(batch).mean().numpy()[0]
+        batch = {k: tf.convert_to_tensor(np.stack([np.asarray(o[k], dtype=np.float32) for o in observations]))
+                 for k in self.keys}
+        return self._fn(batch).mean().numpy()

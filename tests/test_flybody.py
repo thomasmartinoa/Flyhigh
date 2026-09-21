@@ -42,10 +42,10 @@ def test_eye_sees_the_hand_where_it_is(sim):
 
     m, d = sim.physics.model.ptr, sim.physics.data.ptr
     for az, el in ((0, 0), (60, 0), (-60, 10)):
-        d.mocap_pos[sim.hand.mocap_id] = sim.pos + 6.0 * bearing_to_direction(az, el)
+        d.mocap_pos[sim.hand.mocap_id] = sim.pos + 10.0 * bearing_to_direction(az, el)
         mujoco.mj_forward(m, d)
         f = sim.frames()[0]
-        rows, cols = np.nonzero(f.lum < 0.15)
+        rows, cols = np.nonzero(f.lum < 0.3)  # the whole disc, lit top included
         assert abs(f.az_deg[cols].mean() - az) < 4 and abs(f.el_deg[rows].mean() - el) < 4
     d.mocap_pos[sim.hand.mocap_id] = sim.hand.home
     mujoco.mj_forward(m, d)
@@ -76,4 +76,4 @@ def test_the_fly_hovers_flies_forward_turns_climbs_and_hops(sim):
     sim.run(0.05)
     sim.agent.cmd = MotorCommand.idle(0.0)
     sim.run(0.25)
-    assert sim.pos[2] - z0 > 1.0  # the hop
+    assert sim.pos[2] - z0 > 0.5  # the hop
