@@ -60,16 +60,21 @@ OPTIC_INTRINSIC_SUPERCLASSES = ("ol_intrinsic", "ol_sensory")
 class LIFBrain:
     @classmethod
     def for_male_cns(cls, connectome: Connectome, n_agents: int = 1, device="cuda",
-                     optic_inh_scale: float = MALE_CNS_OPTIC_INH_SCALE, **kw) -> LIFBrain:
-        """The male-CNS preset: M1's central calibration plus the optic-lobe rules above."""
+                     optic_inh_scale: float = MALE_CNS_OPTIC_INH_SCALE, optic_inh_types: str | None = None,
+                     **kw) -> LIFBrain:
+        """The male-CNS preset: M1's central calibration plus the optic-lobe rules above.
+        `optic_inh_types`: a regex limiting the inhibition scaling to those optic-lobe types
+        (default: every optic-lobe intrinsic neuron)."""
         n = connectome.neurons
         sensory = n.filter(n["superclass"].str.contains("sensory").fill_null(False))["index"].to_numpy()
-        optic = n.filter(n["superclass"].is_in(OPTIC_INTRINSIC_SUPERCLASSES))["index"].to_numpy()
+        optic = n.filter(n["superclass"].is_in(OPTIC_INTRINSIC_SUPERCLASSES))
+        scaled = optic if optic_inh_types is None else optic.filter(optic["type"].str.contains(optic_inh_types).fill_null(False))
         return cls(
             connectome, n_agents=n_agents, device=device,
             params=ShiuParams(w_syn_mv=MALE_CNS_W_SYN),
-            std_u=MALE_CNS_STD_U, std_tau_ms=MALE_CNS_STD_TAU_MS, std_exempt=np.union1d(sensory, optic),
-            inh_scale=optic_inh_scale, inh_scale_pre=optic, **kw,
+            std_u=MALE_CNS_STD_U, std_tau_ms=MALE_CNS_STD_TAU_MS,
+            std_exempt=np.union1d(sensory, optic["index"].to_numpy()),
+            inh_scale=optic_inh_scale, inh_scale_pre=scaled["index"].to_numpy(), **kw,
         )
 
     def __init__(
@@ -85,6 +90,7 @@ class LIFBrain:
         driven_only=None,
         inh_scale: float = 1.0,
         inh_scale_pre=None,
+        edge_scale=None,
     ):
         """propagation: "event" gathers only the out-edges of neurons that spiked (fast when
         <1% of neurons fire per step, which is the norm); "spmv" is a full sparse matmul.
@@ -93,7 +99,10 @@ class LIFBrain:
         inh_scale: multiplies inhibitory (GABA/Glu/histamine) weights -- all of them, or only
         those whose presynaptic neuron is in `inh_scale_pre`. One synapse count maps to one
         w_syn regardless of transmitter in Shiu's model; this is the knob for the
-        excitation/inhibition balance, per region if needed."""
+        excitation/inhibition balance, per region if needed.
+        edge_scale: [(pre_indices, post_indices, factor), ...] multiplies the weights of the
+        synapses from any of `pre_indices` onto any of `post_indices` (e.g. a stand-in for
+        electrical synapses the model lacks)."""
         self.connectome = connectome
         self.p = params = params or ShiuParams()
         self.n_agents = n_agents
@@ -112,6 +121,13 @@ class LIFBrain:
             m = val < 0 if scaled_pre is None else (val < 0) & scaled_pre[pre]
             return torch.where(m, val * inh_scale, val)
 
+        def scale_edges(val, pre, post):
+            for pre_idx, post_idx, factor in edge_scale or ():
+                a = torch.zeros(self.n_neurons, dtype=torch.bool); a[torch.as_tensor(np.asarray(pre_idx), dtype=torch.int64)] = True
+                b = torch.zeros(self.n_neurons, dtype=torch.bool); b[torch.as_tensor(np.asarray(post_idx), dtype=torch.int64)] = True
+                val = torch.where(a[pre] & b[post], val * factor, val)
+            return val
+
         self.propagation = propagation
         if propagation == "event":
             # CSR indexed by *pre* neuron so a spike's out-edges are one contiguous run.
@@ -121,13 +137,15 @@ class LIFBrain:
             self._rowptr = torch.cat([torch.zeros(1, dtype=torch.int64), counts.cumsum(0)]).to(self.device)
             self._col = torch.from_numpy(e["post_idx"].to_numpy().copy()).to(self.device)
             val = torch.from_numpy(e["weight"].to_numpy().copy()).float() * params.w_syn_mv
-            self._val = scale_inhibition(val, pre).to(self.device)
+            post = torch.from_numpy(e["post_idx"].to_numpy().copy())
+            self._val = scale_edges(scale_inhibition(val, pre), pre, post).to(self.device)
             self._propagate = self._propagate_event
         elif propagation == "spmv":
             W = connectome.to_sparse() * params.w_syn_mv  # W[post, pre]
-            self.W = torch.sparse_csr_tensor(
-                W.crow_indices(), W.col_indices(), scale_inhibition(W.values(), W.col_indices()), W.shape
-            ).to(self.device)
+            counts = W.crow_indices()[1:] - W.crow_indices()[:-1]
+            post = torch.repeat_interleave(torch.arange(self.n_neurons), counts)
+            vals = scale_edges(scale_inhibition(W.values(), W.col_indices()), W.col_indices(), post)
+            self.W = torch.sparse_csr_tensor(W.crow_indices(), W.col_indices(), vals, W.shape).to(self.device)
             self._propagate = self._propagate_spmv
         else:
             raise ValueError(f"unknown propagation {propagation!r}")

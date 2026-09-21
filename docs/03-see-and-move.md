@@ -235,11 +235,26 @@ escapes, and a static disc produces the same startle ticks. The spec's check ign
 50 ms after onset; this pipeline's flash latency (flyvis's ~40 ms photoreceptor-to-T5 delay
 plus the LIF chain) is 70 ms. The check is left as written rather than widened.
 
+**Where the escape's margin comes from (investigated 2026-09-21, after M3 and M4 kept
+hitting it).** The first escape sits at ~40° whatever is done downstream of LPLC2: scaling
+the LC4/LPLC2 → GF synapses ×3 or ×6 (a stand-in for the gap junctions the model lacks)
+raises the GF's spike count from 6 to 22 and 36 over the loom but not the onset; limiting the
+×8 inhibition to the LPi cells frees LC4 for gratings, not for looms (its excitation is what
+is missing); a one-spike escape rule sustains the escape (5–7 ticks instead of 2) but does
+not advance it and turns hovering flies' stray GF spikes into escapes; ×3 on every optic-lobe
+output with the bridge gains ÷3 changes nothing. The GF's ledger during the loom is +1256 to
+−58 mV·spikes — it is not inhibited; it is fed by LPLC2 spikes each worth ~0.8 mV at its peak
+(a 5 mV jump in a 5 ms synapse driving a 20 ms membrane), and LPLC2 itself starts firing only
+when the disc is ~35° across, because each T5 spike is worth ~0.1 mV to it and dozens must
+coincide — which happens once the rim is long. Real flies take off at 20–40° for looms of
+this speed; the spec's "before 40°" sits on that onset, which is why every neighbouring
+setting lands at 38–54°. `LIFBrain(edge_scale=…)` and `for_male_cns(optic_inh_types=…)` are
+the (tested) knobs left from the investigation.
+
 **Honest limits.**
-- The looming escape is marginal: the GF fires ~1 spike per 20–40 ms during the loom, so the
-  spec's "50 Hz over 20 ms" (two spikes in a window) is met at 39.8° by a pair of spikes;
-  neighbouring gains give 38–54° or no pair at all. LC4 — biologically the GF's strongest
-  loom input — stays silent: its main input T2 hyperpolarises in flyvis for dark stimuli.
+- The looming escape is marginal in the sense above: onset at the biological edge of the
+  criterion, two GF spikes in 20 ms needed. LC4 — biologically the GF's strongest loom
+  input — stays silent: its main input T2 hyperpolarises in flyvis for dark stimuli.
 - Gains are per pathway, not per physiology: T4a/T5a at 15 because HS cells lose selectivity
   above ~18 (28 synapses per T4a, `g = 0` reset), T5b/c/d at 120 because LPLC2 needs it.
   T4/T5 fire at 20–70 Hz, HS at ~100 Hz — both models of graded cells.
