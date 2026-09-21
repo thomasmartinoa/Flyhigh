@@ -18,7 +18,18 @@ dependencies = [
     "mujoco>=3.3",
     "imageio>=2.34",
     "imageio-ffmpeg>=0.5",
+    "flybody",
+    "tensorflow-cpu>=2.16",
+    "tensorflow-probability[tf]>=0.24",
+    "h5py>=3.10",
 ]
+
+[tool.uv.sources]
+flybody = { git = "https://github.com/TuragaLab/flybody.git" }
+
+[tool.uv]
+# flybody pins numpy==1.26.4 in its metadata but runs fine on numpy 2 (checked: model, tasks, policy)
+override-dependencies = ["numpy>=2"]
 
 [project.optional-dependencies]
 neuprint = ["neuprint-python>=0.6"]
@@ -37,6 +48,7 @@ testpaths = ["tests"]
 markers = [
     "data: needs the real male-CNS tables in data/raw (skipped otherwise)",
     "flyvis: needs the pretrained flyvis models under data/flyvis",
+    "flybody: needs flybody, tensorflow and the trained flight policy under data/flybody",
 ]
 filterwarnings = ["ignore:Sparse CSR tensor support is in beta state:UserWarning"]
 

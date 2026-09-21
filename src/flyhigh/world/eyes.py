@@ -20,17 +20,27 @@ def bearing_to_direction(az_deg, el_deg):
 
 
 class CubemapPanorama:
-    def __init__(self, model, agent: int, face_px: int = 96, h: int = 180, w: int = 360):
+    def __init__(self, model, agent: int = 0, face_px: int = 96, h: int = 180, w: int = 360,
+                 cam_names: dict[str, str] | None = None, hide_groups=None, eye_frame=None):
+        """`cam_names`: face -> camera name (default the M3 scene's `agent{i}_{face}`);
+        `hide_groups`: geom groups the eyes skip (default the agent's own group);
+        `eye_frame`: 3x3 matrix taking eye-frame directions (x forward, y left, z up) to the
+        cameras' parent-body frame, when that body's own frame is something else (flybody's head)."""
         import mujoco
 
         self.face_px, self.h, self.w = face_px, h, w
         self.opt = mujoco.MjvOption()  # everything but the agent's own body
         self.opt.geomgroup[:] = 1
-        self.opt.geomgroup[agent_group(agent)] = 0
-        self.cam_ids = {f: mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_CAMERA, f"agent{agent}_{f}") for f in FACES}
+        for g in ([agent_group(agent)] if hide_groups is None else hide_groups):
+            self.opt.geomgroup[g] = 0
+        cam_names = cam_names or {f: f"agent{agent}_{f}" for f in FACES}
+        self.cam_ids = {f: mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_CAMERA, cam_names[f]) for f in FACES}
+        assert min(self.cam_ids.values()) >= 0, f"missing eye camera among {cam_names}"
         frame = PanoramicFrame.grey(h=h, w=w)
         azg, elg = frame.angular_grid()
-        d = bearing_to_direction(azg.ravel(), elg.ravel())  # (h*w, 3) in the body frame
+        d = bearing_to_direction(azg.ravel(), elg.ravel())  # (h*w, 3) in the eye frame
+        if eye_frame is not None:
+            d = d @ np.asarray(eye_frame, dtype=float).T  # -> the parent body's frame
         half = np.tan(np.radians(FACE_FOVY / 2))
         self.face_of = np.full(h * w, -1, dtype=np.int64)
         self.row = np.zeros(h * w, dtype=np.int64)
@@ -52,9 +62,15 @@ class CubemapPanorama:
 
     def render(self, renderer, data) -> PanoramicFrame:
         """`renderer`: a mujoco.Renderer of size (face_px, face_px), shared across agents."""
+        import mujoco
+
         lum = np.full(self.h * self.w, 0.5, dtype=np.float32)
         for k, cid in enumerate(self.cam_ids.values()):
             renderer.update_scene(data, camera=cid, scene_option=self.opt)
+            # no shadows or reflections: a 5°-column eye cannot see them, and a model with
+            # cinematic shadow maps (flybody: 8192², four lights) spends 30 ms per face on them
+            renderer.scene.flags[mujoco.mjtRndFlag.mjRND_SHADOW] = 0
+            renderer.scene.flags[mujoco.mjtRndFlag.mjRND_REFLECTION] = 0
             rgb = renderer.render()
             grey = (rgb @ np.array([0.299, 0.587, 0.114], dtype=np.float32)) / 255.0
             m = self.face_of == k
