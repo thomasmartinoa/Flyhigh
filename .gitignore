@@ -11,3 +11,4 @@ Research_paper/*.pdf
 .pytest_cache/
 .ruff_cache/
 .superpowers/
+data/flybody/
