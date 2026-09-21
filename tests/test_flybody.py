@@ -41,11 +41,14 @@ def test_eye_sees_the_hand_where_it_is(sim):
     import mujoco
 
     m, d = sim.physics.model.ptr, sim.physics.data.ptr
+    d.mocap_pos[sim.hand.mocap_id] = sim.hand.home + np.array([0.0, 0.0, -50.0])  # parked out of sight
+    mujoco.mj_forward(m, d)
+    empty = sim.frames()[0].lum
     for az, el in ((0, 0), (60, 0), (-60, 10)):
         d.mocap_pos[sim.hand.mocap_id] = sim.pos + 10.0 * bearing_to_direction(az, el)
         mujoco.mj_forward(m, d)
         f = sim.frames()[0]
-        rows, cols = np.nonzero(f.lum < 0.3)  # the whole disc, lit top included
+        rows, cols = np.nonzero(np.abs(f.lum - empty) > 0.1)  # the hand's disc, whatever its shading
         assert abs(f.az_deg[cols].mean() - az) < 4 and abs(f.el_deg[rows].mean() - el) < 4
     d.mocap_pos[sim.hand.mocap_id] = sim.hand.home
     mujoco.mj_forward(m, d)
