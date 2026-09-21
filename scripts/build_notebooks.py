@@ -453,3 +453,81 @@ plt.tight_layout()"""),
 - Replace `Body.apply` with a rotor model: the interface is one method."""),
 ]
 write("04_the_box.ipynb", nb04)
+
+# --------------------------------------------------------------------------- 05
+nb05 = [
+    md("""
+# 05 — flybody
+
+The brain steering Janelia's anatomical fruit fly, which flies on its own wings. Read `docs/05-flybody.md` alongside.
+Needs flybody's trained flight policy under `data/flybody/` (see the doc) and TensorFlow (CPU)."""),
+    code("""
+import os, sys; sys.path.insert(0, "..")
+os.environ["FLYVIS_ROOT_DIR"] = os.path.abspath("../data/flyvis")
+os.environ.setdefault("MUJOCO_GL", "glfw")
+import numpy as np, polars as pl, mujoco
+from flyhigh.data.connectome import Connectome
+from flyhigh.agent import FlyAgent
+from flyhigh.motor.command import MotorCommand
+from flyhigh.motor.readout import ReadoutParams
+from flyhigh.flybody.sim import FlySimulation
+""" + STYLE + """
+os.chdir("..")  # flybody's policy and wing pattern are addressed from the repo root
+c = Connectome.load("data/raw")
+agent = FlyAgent(c, n_agents=1, params=ReadoutParams(forward_bias=0.0))
+sim = FlySimulation(agent)
+print(f"drum {sim.drum.size} cm, {sim.policy_per_tick} policy steps per 10 ms tick, wing beat {sim.log()['wingbeat_hz'][-1] if sim.rows else 218:.0f} Hz")"""),
+    md("""
+## 1. The fly's-eye view and the fly
+Fly-scale drum: striped side walls, the fingertip ahead-right."""),
+    code("""
+over = mujoco.Renderer(sim.physics.model.ptr, 360, 640); over.update_scene(sim.physics.data.ptr, camera="overview"); top = over.render(); over.close()
+pano = sim.frames()[0].lum
+fig, axes = plt.subplots(1, 2, figsize=(12, 3.6), gridspec_kw={"width_ratios": [1.3, 1.5]})
+axes[0].imshow(top); axes[0].set_title("the drum (overview camera)"); axes[0].axis("off")
+axes[1].imshow(pano, cmap="gray", vmin=0, vmax=1, extent=[-180, 180, -90, 90]); axes[1].set_title("through the fly's head cameras (5-exposure average)"); axes[1].grid(False)
+plt.tight_layout()"""),
+    md("""
+## 2. The hand
+A 4 cm fingertip comes at the hovering fly at 50 cm/s. The brain's escape steers the flight controller into a hop."""),
+    code("""
+sim.run(0.5)
+sim.hand.approach(lambda s=sim: s.pos)
+n0 = len(sim.rows); sim.run(1.5); log = pl.DataFrame(sim.rows[n0:])
+fig, axes = plt.subplots(3, 1, figsize=(9, 6), sharex=True)
+axes[0].plot(log["t_ms"], log["hand_dist"], color=C[0]); axes[0].set_ylabel("hand distance (cm)")
+axes[1].plot(log["t_ms"], log["z"], color=C[1]); axes[1].set_ylabel("height (cm)")
+axes[2].plot(log["t_ms"], log["gf_hz"], color=C[2]); axes[2].set_ylabel("giant fiber (Hz)"); axes[2].set_xlabel("time (ms)")
+for ax in axes:
+    for t in log.filter(pl.col("escape"))["t_ms"][:1]: ax.axvline(t, color="#999", lw=1, ls="--")
+plt.tight_layout()
+e = log.filter(pl.col("escape"))
+print("first escape at hand distance", None if e.height == 0 else round(e["hand_dist"][0], 2), "cm; escape ticks", e.height)"""),
+    md("""
+## 3. Steering without the brain
+The same fly with scripted commands: forward, a turn, a climb, an escape hop. Trajectory from above and height over time."""),
+    code("""
+class Scripted:
+    def __init__(self): self.cmd = MotorCommand.idle(0.0)
+    def tick(self, frames): return [self.cmd]
+sim.close(); s2 = FlySimulation(Scripted(), settle_s=0.0)
+plan = [(MotorCommand(0.5, 0, 0, False), 0.6, "forward"), (MotorCommand(0, 0.5, 0, False), 0.5, "turn right"),
+        (MotorCommand(0.5, 0, 0, False), 0.6, "forward"), (MotorCommand(0, 0, 0.5, False), 0.4, "climb"),
+        (MotorCommand(0, 0, 0, True), 0.05, "escape"), (MotorCommand.idle(0.0), 0.4, "hover")]
+marks = []
+for cmd, secs, label in plan:
+    s2.agent.cmd = cmd; marks.append((len(s2.rows), label)); s2.run(secs)
+log = s2.log(); s2.close()
+fig, axes = plt.subplots(1, 2, figsize=(11, 4))
+axes[0].plot(log["x"], log["y"], color=C[0]); axes[0].set_aspect("equal"); axes[0].set_xlabel("x (cm)"); axes[0].set_ylabel("y (cm)"); axes[0].set_title("from above")
+axes[1].plot(log["t_ms"], log["z"], color=C[1]); axes[1].set_xlabel("time (ms)"); axes[1].set_ylabel("height (cm)")
+for i, label in marks:
+    axes[1].axvline(log["t_ms"][i], color="#bbb", lw=1); axes[1].text(log["t_ms"][i], log["z"].max(), label, fontsize=7, rotation=90, va="top")
+plt.tight_layout()"""),
+    md("""
+## Try it
+- `SteerParams(escape_up=40)` — the policy tumbles; 20 cm/s is the most it takes.
+- `FlySimulation(agent, exposures=1)` — one snapshot per tick: the fly escapes from its own wing-beat jitter.
+- `sim.spin_drum = 60` — the optomotor drum; watch HS respond and the giant fiber fire (docs/05 §3)."""),
+]
+write("05_flybody.ipynb", nb05)

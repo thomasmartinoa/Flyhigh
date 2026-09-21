@@ -12,8 +12,8 @@ wiring into a running spiking brain on a single GPU, then gives it eyes and a bo
 | **M1 Brain** | load the connectome, run all 165k neurons as leaky integrate-and-fire units on the GPU, reproduce published circuit results | ✅ done |
 | **M2 See & Move** | camera → flyvis optic lobe → LIF brain; descending neurons → motor commands (optomotor turn, looming escape) | ✅ done — 8 of 9 spec checks; the ninth is an appearance startle ([details](docs/03-see-and-move.md#5-results)) |
 | **M3 The Box** | MuJoCo room with two fly-brained flying bodies and a moving "hand"; they react to each other | ✅ done — 6/6 experiments ([details](docs/04-the-box.md#4-the-experiments)) |
-| M4 flybody | swap in Janelia's anatomically detailed MuJoCo fly | next |
-| M5 Real drone | the same brain flying a small drone in a room, reacting to you like a fly | |
+| **M4 flybody** | the brain steers Janelia's anatomical MuJoCo fly, flying on its own wings | ✅ done — 4/5 experiments; the optomotor drum fires the marginal giant fiber ([details](docs/05-flybody.md#3-the-experiments)) |
+| M5 Real drone | the same brain flying a small drone in a room, reacting to you like a fly | next |
 
 ## Quick start
 
@@ -21,13 +21,16 @@ wiring into a running spiking brain on a single GPU, then gives it eyes and a bo
 uv sync --all-groups                         # Python 3.12 venv with torch (CUDA), polars, flyvis
 uv run python -m flyhigh.data.download       # 1.1 GB of connectome tables → data/raw/
 uv run flyvis download-pretrained            # pretrained optic-lobe ensemble → data/flyvis/
+# M4: flybody's trained flight policy + wing pattern (figshare 25309105: trained-fly-policies.zip,
+#     datasets_flight-imitation.zip) unzipped under data/flybody/
 uv run pytest                                # unit tests (synthetic fixtures, ~35 s)
 uv run python scripts/validate_gustatory.py  # M1: sugar neurons → feeding motor neuron
 uv run python scripts/validate_looming.py    # M1: looming detectors → giant fiber escape
 uv run python scripts/build_alignment.py     # M2: flyvis columns ↔ male-CNS columns → data/cache/
 uv run python scripts/validate_reflexes.py   # M2: silence, escape, optomotor, two agents, speed
 uv run python scripts/validate_box.py        # M3: hover, hand → escape, optomotor in a body, two flies, speed
-uv run jupyter lab notebooks/                # 01 connectome, 02 brain, 03 see & move, 04 the box
+uv run python scripts/validate_fly.py        # M4: flybody steering, hover, hand → escape, optomotor, speed
+uv run jupyter lab notebooks/                # 01 connectome, 02 brain, 03 see & move, 04 the box, 05 flybody
 ```
 
 ```python
@@ -65,6 +68,7 @@ log = sim.run(3.0)                                   # ... which escapes; fly 1 
 
 - [`docs/01-connectome.md`](docs/01-connectome.md) — what the dataset is and isn't, the tables, the famous neurons
 - [`docs/02-lif-brain.md`](docs/02-lif-brain.md) — the neuron model, how we validated it against the published FlyWire model, why the male CNS needed its own calibration, and the honest limits
+- [`docs/05-flybody.md`](docs/05-flybody.md) — flybody's flight controller and how a `MotorCommand` steers it (the carrot), eyes on a bobbing head, what worked in the anatomical fly and what did not
 - [`docs/04-the-box.md`](docs/04-the-box.md) — what changes when a brain has a body, why the room is an optomotor drum, the eye rig and the flying brick, the four experiments and their limits
 - [`docs/03-see-and-move.md`](docs/03-see-and-move.md) — how a fly sees, why flyvis feeds the LIF, aligning two hex lattices (and how LPLC2's anatomy caught a 180° error), the optic-lobe calibration of the brain, the descending-neuron readout, and the five-step hunt for the looming escape
 - `notebooks/` — the same as runnable, plotted walkthroughs
@@ -80,6 +84,7 @@ src/flyhigh/agent.py   FlyAgent.tick(frames) → commands   (the closed loop, ba
 src/flyhigh/world/     scene.py, eyes.py   (the MuJoCo drum, hand and bodies; cubemap eyes → PanoramicFrame)
 src/flyhigh/body/      brick.py, hand.py   (MotorCommand → forces; the scripted hand)
 src/flyhigh/sim.py     Simulation.run(seconds) → log; VideoWriter   (render → brain → body → physics)
+src/flyhigh/flybody/   policy.py, arena.py, task.py, sim.py   (flybody's fly: TF flight policy, fly-scale drum, steered task, loop)
 scripts/               validate_*.py, build_alignment.py, calibrate_bridge.py, benchmark.py, build_notebooks.py
 tests/                 pytest, synthetic fixtures; real-data tests skipped without data/raw
 docs/, notebooks/      learning track
