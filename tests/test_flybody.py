@@ -62,9 +62,9 @@ def test_the_fly_hovers_flies_forward_turns_climbs_and_hops(sim):
     sim.agent.cmd = MotorCommand.idle(0.0); sim.run(0.2)
     y0 = sim.yaw_deg
     sim.agent.cmd = MotorCommand(0.0, 0.25, 0.0, False)
-    sim.run(0.3)
+    sim.run(0.5)
     turned = (sim.yaw_deg - y0 + 180) % 360 - 180
-    assert -75 < turned < -30  # + yaw = right = clockwise = decreasing heading
+    assert -30 < turned < -8  # 45°/s minus the ramp; + yaw = right = clockwise = decreasing heading
     sim.agent.cmd = MotorCommand.idle(0.0); sim.run(0.2)
     z0 = sim.pos[2]
     sim.agent.cmd = MotorCommand(0.0, 0.0, 0.5, False)
