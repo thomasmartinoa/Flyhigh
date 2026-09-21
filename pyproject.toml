@@ -48,6 +48,7 @@ testpaths = ["tests"]
 markers = [
     "data: needs the real male-CNS tables in data/raw (skipped otherwise)",
     "flyvis: needs the pretrained flyvis models under data/flyvis",
+    "flybody: needs flybody, tensorflow and the trained flight policy under data/flybody",
 ]
 filterwarnings = ["ignore:Sparse CSR tensor support is in beta state:UserWarning"]
 
