@@ -29,7 +29,11 @@ class FlySimulation:
     n_agents = 1
 
     def __init__(self, agent, drum: DrumParams | None = None, steer: SteerParams | None = None,
-                 face_px: int = 96, policy_path=DEFAULT_PATH, wpg_path=WPG_PATH, settle_s: float = 0.5):
+                 face_px: int = 96, policy_path=DEFAULT_PATH, wpg_path=WPG_PATH, settle_s: float = 0.5,
+                 exposures: int = 5):
+        """`exposures`: sub-frames averaged into each tick's panorama. The head bobs ~2° with
+        every wing beat (218 Hz); a single snapshot per 10 ms tick aliases that into motion the
+        brain escapes from. Photoreceptors integrate over about a tick; so does this."""
         self.agent = agent
         self.drum = drum or DrumParams()
         wbpg = WingBeatPatternGenerator(base_pattern_path=str(wpg_path))
@@ -45,8 +49,14 @@ class FlySimulation:
                                   cam_names={f: f"walker/cube_{f}" for f in FACES}, hide_groups=OWN_GROUPS)
         self.hand = Hand(self.physics.model.ptr, self.physics.data.ptr, name="hand", speed=50.0, stop_short=2.0)
         self.policy_per_tick = round(TICK_MS / 1000 / self.env.control_timestep())
+        self.exposures = exposures
+        self._accum = None
         self.tick = 0
-        self.disturb_yaw: dict[int, float] = {}
+        self.disturb_yaw: dict[int, float] = {}  # (kept for the M3 API; the fly's controller cancels it)
+        self.spin_drum = 0.0  # °/s, + = clockwise seen from above (the scene moves right-to-left ahead)
+        self._drum_angle = 0.0
+        m = self.physics.model.ptr
+        self._drum_mocap = int(m.body_mocapid[mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_BODY, "drum")])
         self.rows: list[dict] = []
         self.last_frames: list[PanoramicFrame] = []
         self.last_commands = []
@@ -103,19 +113,33 @@ class FlySimulation:
             self.agent.tick(frames)
 
     def frames(self) -> list[PanoramicFrame]:
-        return [self.eye.render(self.renderer, self.physics.data.ptr)]
+        """The last tick's time-averaged panorama (a single snapshot before the first tick)."""
+        if self._accum is None:
+            return [self.eye.render(self.renderer, self.physics.data.ptr)]
+        return [PanoramicFrame(self._accum / self.exposures)]
 
     def step(self):
         self.last_frames = self.frames()
         cmds = self.agent.tick(self.last_frames)
         self.task.set_command(cmds[0], TICK_MS)
         dt = self.env.control_timestep()
-        for _ in range(self.policy_per_tick):
+        every = max(1, self.policy_per_tick // self.exposures)
+        accum = np.zeros((self.eye.h, self.eye.w), dtype=np.float32)
+        n_exp = 0
+        for k in range(self.policy_per_tick):
             self.actions = self.policy(self.ts.observation)
             for rate in self.disturb_yaw.values():
                 self._impose_yaw(rate)
+            if self.spin_drum:
+                self._drum_angle -= np.radians(self.spin_drum) * dt  # clockwise = negative about +z
+                self.physics.data.ptr.mocap_quat[self._drum_mocap] = [np.cos(self._drum_angle / 2), 0, 0,
+                                                                     np.sin(self._drum_angle / 2)]
             self.hand.step(dt)
             self.ts = self.env.step(self.actions)
+            if (k + 1) % every == 0 and n_exp < self.exposures:
+                accum += self.eye.render(self.renderer, self.physics.data.ptr).lum
+                n_exp += 1
+        self._accum = accum * (self.exposures / n_exp)
         self.tick += 1
         self.last_commands = cmds
         self._log(cmds)
@@ -149,13 +173,14 @@ class FlySimulation:
     # --------------------------------------------------------------- controls
     def _impose_yaw(self, rate_deg_s: float) -> None:
         """Set the root's angular velocity to a yaw about the world z (+ = right)."""
-        joint = self.task.walker.mjcf_model.find("joint", "free")
-        bound = self.physics.bind(joint)
+        m, d = self.physics.model.ptr, self.physics.data.ptr
+        if not hasattr(self, "_root_dof"):
+            root = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_BODY, "walker/thorax")
+            j = int(m.body_jntadr[root])
+            assert m.jnt_type[j] == mujoco.mjtJoint.mjJNT_FREE
+            self._root_dof = int(m.jnt_dofadr[j])
         R = np.asarray(self.physics.bind(self.task.walker.root_body).xmat).reshape(3, 3)
-        w_local = R.T @ np.array([0.0, 0.0, -np.radians(rate_deg_s)])
-        qvel = np.array(bound.qvel)
-        qvel[3:6] = w_local
-        bound.qvel = qvel
+        d.qvel[self._root_dof + 3: self._root_dof + 6] = R.T @ np.array([0.0, 0.0, -np.radians(rate_deg_s)])
 
     def speed(self, seconds: float = 1.0) -> float:
         n = round(seconds * 1000 / TICK_MS)

@@ -36,11 +36,12 @@ class SteerParams:
     """Command → flybody steering. Speeds are within the recorded flight dataset's range."""
     v_max: float = 30.0  # cm/s at forward = 1
     vz_max: float = 15.0  # cm/s at lift = 1
-    w_max_deg: float = 720.0  # yaw rate at yaw = 1, + = right
+    w_max_deg: float = 180.0  # yaw rate at yaw = 1, + = right (720, a saccade rate, turned the
+    # readout's ±0.02 noise into a ±15°/s wobble that swamped the optomotor signal)
     escape_up: float = 20.0  # a 2 cm hop in 100 ms; 40 cm/s tumbles the policy (roll 173°)
     escape_back: float = 10.0
     escape_ms: float = 100.0
-    start: tuple[float, float, float] = (-5.0, 0.0, 7.0)  # cm
+    start: tuple[float, float, float] = (-5.0, 0.0, 7.0)  # cm, mid-height of the drum
     start_yaw_deg: float = 0.0
     lead_max: float = 0.3  # cm the reference point may lead the fly (~1 body length)
     lead_max_deg: float = 30.0  # degrees the reference heading may lead
