@@ -101,3 +101,21 @@ def test_annotated_video_writes_a_watchable_file(tmp_path):
     sim.run(0.05, on_tick=video)
     video.close(); sim.close()
     assert (tmp_path / "v.mp4").stat().st_size > 5000
+
+
+def test_play_controller_handles_every_key_and_the_mouse_hook():
+    from flyhigh.play import KEY_J, KEY_R, KEY_SPACE, Play
+    sim = Simulation(IdleAgent(2), n_agents=2, face_px=32)
+    play = Play(sim)
+    assert sim.on_substep is not None  # the mouse arrives after the bodies write their forces
+    sim.step()  # runs the hook with no viewer attached: must be a no-op, not a crash
+    play.key(KEY_SPACE)
+    assert play.paused is True
+    play.key(KEY_J)
+    assert sim.hand.pos[2] < 0  # parked out of the room
+    for keycode in Play.all_keys():
+        play.key(keycode)
+    play.key(KEY_R)
+    assert sim.hand.pos[2] > 0 and abs(sim.bodies[0].pos[2] - 1.0) < 1e-6
+    assert play.selected_body() == 0  # nothing selected without a viewer
+    sim.close()

@@ -31,6 +31,7 @@ uv run python scripts/build_alignment.py     # M2: flyvis columns ↔ male-CNS c
 uv run python scripts/validate_reflexes.py   # M2: silence, escape, optomotor, two agents, speed
 uv run python scripts/validate_box.py        # M3: hover, hand → escape, optomotor in a body, two flies, speed
 uv run python scripts/demo_box.py            # M3: annotated videos of the brain reacting → data/runs/
+uv run python scripts/play_box.py            # M3: interactive box — drag things at the fly, live
 uv run python scripts/validate_fly.py        # M4: flybody steering, hover, hand → escape, optomotor, speed
 uv run python scripts/validate_fly2.py       # M4b: two flybody flies, two brains, one drum
 uv run jupyter lab notebooks/                # 01 connectome, 02 brain, 03 see & move, 04 the box, 05 flybody

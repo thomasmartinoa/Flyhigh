@@ -38,6 +38,7 @@ class Simulation:
         self.physics_per_tick = round(TICK_MS / (self.model.opt.timestep * 1000))
         self.dt_ms = TICK_MS / self.physics_per_tick
         self.tick = 0
+        self.on_substep = None  # optional callable(sim), run after the bodies write their forces
         self.disturb_yaw: dict[int, float] = {}  # agent -> imposed yaw rate (°/s, + = right), an external push
         self.rows: list[dict] = []
         self.last_frames: list[PanoramicFrame] = []
@@ -70,6 +71,8 @@ class Simulation:
             for i, rate in self.disturb_yaw.items():
                 self.data.qvel[self._yaw_dof(i)] = -np.radians(rate)
             self.hand.step(self.dt_ms / 1000.0)
+            if self.on_substep is not None:
+                self.on_substep(self)  # e.g. a viewer's mouse perturbation, on top of the controller
             mujoco.mj_step(self.model, self.data)
         self.tick += 1
         self.last_commands = cmds

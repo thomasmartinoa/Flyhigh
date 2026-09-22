@@ -129,6 +129,21 @@ comes from — LPLC2 fires only when dozens of T5 spikes coincide (docs/03 §5),
 never delivers them. It is also the one result with a direct consequence for M5: a drone flying
 slowly at a wall will not be saved by this reflex, while anything that moves toward it will be seen.
 
+**Moving things by hand.** `scripts/play_box.py` opens MuJoCo's viewer on the same box and keeps
+the brain running inside it, so the room is something you can reach into: double-click a body to
+select it and <kbd>ctrl</kbd> + right-drag to move it. The hand is a mocap body, so dragging
+*places* it — put it in front of a fly and watch the giant fiber answer — while dragging a flying
+body pushes it and its controller fights back. <kbd>h</kbd> sends the hand at the selected body,
+<kbd>j</kbd>/<kbd>k</kbd> park and recall it, <kbd>space</kbd> pauses (the easiest way to place
+something precisely), <kbd>r</kbd> resets, <kbd>f</kbd> toggles the escape refractory. A red ball
+appears over any body whose escape is firing, and the terminal carries a live line with the
+giant-fiber rate, the command and the distance to the hand.
+
+The mouse arrives through `Simulation.on_substep`, a hook that runs *after* the bodies have
+written their own forces — otherwise the velocity controller would overwrite every push in the
+same step. The brain costs ~70 ms of wall time per 10 ms tick, so the world runs at about
+**1/7 of real time**; that is what makes a 100 ms reflex watchable.
+
 The videos also use the readout's new **escape refractory**
 (`ReadoutParams(escape_refractory_ms=300)`): the manoeuvre lasts 100 ms and the body's own motion
 re-fires the detector, so without it one stray spike repeats for dozens of ticks. It is off by
