@@ -3,7 +3,8 @@
 The room is the fly physiologist's optomotor drum: vertical stripes on the side walls give
 rotation its optic flow (HS), while floor, ceiling and end walls are plain grey so that flying
 forward does not paint an expanding pattern on the eye (a checkered floor made the looming
-detectors fire at the room itself). The only dark objects are the hand and the other flies.
+detectors fire at the room itself). The only dark objects are the hand, the other flies and any
+`pillars` -- dark floor-to-ceiling cylinders, the static obstacle a cruising body has to notice.
 
 Sizes are metres. What matters to a 5°-column eye is angular size: the 30 cm bodies and hand
 subtend 40° -- M2's escape size -- at 0.4 m.
@@ -34,6 +35,9 @@ class RoomParams:
     stripe_m: float = 0.75  # stripe period on the side walls (14° at 3 m; 0.125 m aliases at 96 px faces)
     hand_radius: float = 0.15
     hand_home: tuple[float, float, float] = (1.0, -1.2, 1.2)  # ahead-right of agent 0, over the plain end wall
+    pillars: tuple[tuple[float, float], ...] = ()  # (x, y) of dark floor-to-ceiling obstacles
+    balls: tuple[tuple[float, float, float], ...] = ()  # (x, y, z) of dark compact obstacles
+    pillar_radius: float = 0.15  # 30 cm across, like a body: ~40° at 0.4 m
     body_size: float = 0.15  # half-width of the box body: 30 cm across, so another fly looms to the
     # escape size (~40°, M2) at 0.4 m instead of at contact
     body_mass: float = 0.03
@@ -76,6 +80,15 @@ def build_mjcf(n_agents: int = 2, p: RoomParams | None = None, start=None) -> st
     rep = 1.0 / p.stripe_m  # texuniform: repeats per metre; one repeat = a light + a dark stripe
     # default: a line along x, alternating sides, facing each other's general direction
     start = start or [(-0.75 + 1.5 * i, (-1) ** i * 0.2, 1.0, 180.0 * (i % 2)) for i in range(n_agents)]
+    pillars = "".join(
+        f'<geom name="pillar{i}" type="cylinder" size="{p.pillar_radius} {p.size[2] / 2}" '
+        f'pos="{px} {py} {p.size[2] / 2}" rgba="0.05 0.05 0.05 1"/>'
+        for i, (px, py) in enumerate(p.pillars)
+    ) + "".join(
+        f'<geom name="ball{i}" type="sphere" size="{p.pillar_radius}" pos="{bx} {by} {bz}" '
+        f'rgba="0.05 0.05 0.05 1"/>'
+        for i, (bx, by, bz) in enumerate(p.balls)
+    )
     plain = 'rgba="0.5 0.5 0.5 1"'
     walls = "".join(
         f'<geom type="box" size="{sx} {sy} {sz}" pos="{px} {py} {pz}" {look}/>'
@@ -94,7 +107,7 @@ def build_mjcf(n_agents: int = 2, p: RoomParams | None = None, start=None) -> st
   </asset>
   <worldbody>
     <light pos="0 0 {p.size[2] - 0.2}" dir="0 0 -1" diffuse="0.6 0.6 0.6"/>
-    {walls}
+    {walls}{pillars}
     <body name="hand" mocap="true" pos="{p.hand_home[0]} {p.hand_home[1]} {p.hand_home[2]}">
       <geom type="sphere" size="{p.hand_radius}" rgba="0.05 0.05 0.05 1" contype="0" conaffinity="0"/>
     </body>

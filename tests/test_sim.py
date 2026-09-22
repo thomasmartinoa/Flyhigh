@@ -78,3 +78,26 @@ def test_video_writer_produces_a_file(tmp_path):
     sim.run(0.1, on_tick=vw)
     vw.close(); sim.close()
     assert (tmp_path / "v.mp4").stat().st_size > 1000
+
+
+def test_pillars_and_balls_appear_in_the_room_and_in_the_eye():
+    from flyhigh.world.scene import RoomParams
+    room = RoomParams(pillars=((0.8, 0.0),), balls=((-0.8, 0.0, 1.0),))
+    sim = Simulation(IdleAgent(1), n_agents=1, room=room, face_px=32, start=[(0.0, 0.0, 1.0, 0.0)])
+    m = sim.model
+    names = [mujoco.mj_id2name(m, mujoco.mjtObj.mjOBJ_GEOM, g) for g in range(m.ngeom)]
+    assert "pillar0" in names and "ball0" in names
+    lum = sim.frames()[0].lum
+    ahead = lum[85:95, 175:185].mean()   # the pillar, dead ahead
+    behind = lum[85:95, 0:10].mean()     # the ball, dead behind: outside both eyes' fields
+    assert ahead < 0.3 and behind == pytest.approx(0.5)
+    sim.close()
+
+
+def test_annotated_video_writes_a_watchable_file(tmp_path):
+    from flyhigh.viz import AnnotatedVideo
+    sim = Simulation(IdleAgent(1), n_agents=1, face_px=32)
+    video = AnnotatedVideo(sim, tmp_path / "v.mp4", every=1, width=480)
+    sim.run(0.05, on_tick=video)
+    video.close(); sim.close()
+    assert (tmp_path / "v.mp4").stat().st_size > 5000

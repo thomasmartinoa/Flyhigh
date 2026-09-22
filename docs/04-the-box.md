@@ -105,7 +105,36 @@ a fly; the two stochastic experiments run three times and are judged by majority
 - **Speed.** 14.5 / 10.5 ticks/s for one / two agents with rendering (the brain alone runs
   ~38); the cubemap renders cost about as much as the brain.
 
-## 5. Honest limits
+## 5. Watching it react
+
+The validations are pass/fail lines in a terminal. `scripts/demo_box.py` runs the same box and
+writes an annotated video instead: four panels per frame — the room, **the panorama the brain is
+being fed**, the giant fiber's rate against its 50 Hz threshold, and the motor command coming out
+of the descending neurons (`flyhigh/viz.py`, which works for the M4 flies too). Nothing in the
+scenes is scripted except the obstacle; the body flies on the brain's own commands.
+
+| scene | what happens | the brain |
+|---|---|---|
+| `obstacle` | a 30 cm sphere closes on a cruising body at 1 m/s | escapes at **0.81 m**, GF 100 Hz, jumps 40 cm |
+| `encounter` | two bodies cruise into each other, nothing else in the room | both escape within 130 ms of each other, part at **0.41 m** |
+| `course` | two dark floor-to-ceiling pillars, body cruising at 0.5 m/s | **no escape** — GF peaks at 50 Hz, it grazes a pillar at 0.21 m |
+| `course_fast` | the same pillars at 1.5 m/s | escapes at **0.48 m** (27° wide), GF 75 Hz |
+| `course_balls` | compact balls instead of pillars, 0.5 m/s | no escape either, GF 25 Hz — it hits one |
+
+**What the obstacle course teaches.** This brain reacts to things that come *at* it, and to things
+it flies at only when it flies fast enough. The trigger is not the obstacle's size (30 cm in all
+three course runs) nor its shape (pillar and ball behave the same) but **how fast the image grows**:
+tripling the cruise speed turns a collision into an escape. That follows from where the reflex
+comes from — LPLC2 fires only when dozens of T5 spikes coincide (docs/03 §5), and a slow approach
+never delivers them. It is also the one result with a direct consequence for M5: a drone flying
+slowly at a wall will not be saved by this reflex, while anything that moves toward it will be seen.
+
+The videos also use the readout's new **escape refractory**
+(`ReadoutParams(escape_refractory_ms=300)`): the manoeuvre lasts 100 ms and the body's own motion
+re-fires the detector, so without it one stray spike repeats for dozens of ticks. It is off by
+default, so every number on this page and in docs/05 is the one measured without it.
+
+## 6. Honest limits
 
 - Everything that was marginal in M2 is marginal here: escapes come at 40–50°, one run in
   three misses a criterion by a hair, and the room had to be arranged (drum, size, plain
