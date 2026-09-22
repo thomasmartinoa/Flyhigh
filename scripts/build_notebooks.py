@@ -525,6 +525,31 @@ for i, label in marks:
     axes[1].axvline(log["t_ms"][i], color="#bbb", lw=1); axes[1].text(log["t_ms"][i], log["z"].max(), label, fontsize=7, rotation=90, va="top")
 plt.tight_layout()"""),
     md("""
+## 4. Two flies, two brains
+One drum, two anatomical flies, a brain each (`FlySimulation(n_agents=2)`). They hover 16 cm apart facing each other; the hand visits fly 0.
+At real fly scale they do not react to each other: a 3 mm fly subtends ~15° at 2 cm, and this brain's escape needs ~40° (docs/03 §5)."""),
+    code("""
+sim.close()
+brains = FlyAgent(c, n_agents=2, params=ReadoutParams(forward_bias=0.0))
+from flyhigh.flybody.arena import DrumParams
+s3 = FlySimulation(brains, n_agents=2, drum=DrumParams(hand_home=(-12.0, -10.0, 8.0)))
+fr = s3.frames()
+fig, axes = plt.subplots(2, 1, figsize=(9, 4))
+for i, ax in enumerate(axes):
+    ax.imshow(fr[i].lum, cmap="gray", vmin=0, vmax=1, extent=[-180, 180, -90, 90]); ax.set_title(f"fly {i}'s panorama"); ax.grid(False)
+plt.tight_layout()
+s3.run(0.5); s3.hand.approach(lambda s=s3: s.pos_of(0))
+log = s3.run(1.5)
+fig, axes = plt.subplots(1, 2, figsize=(11, 4))
+for i in (0, 1):
+    a = log.filter(pl.col("agent") == i); e = a.filter(pl.col("escape"))
+    axes[0].plot(a["x"], a["y"], color=C[i], label=f"fly {i} ({e.height} escape ticks)")
+    axes[0].scatter(e["x"], e["y"], color=C[i], s=30, marker="x")
+    axes[1].plot(a["t_ms"], a["hand_dist"], color=C[i], label=f"fly {i}")
+axes[0].set_aspect("equal"); axes[0].set_xlabel("x (cm)"); axes[0].set_ylabel("y (cm)"); axes[0].legend(fontsize=8)
+axes[1].set_xlabel("time (ms)"); axes[1].set_ylabel("distance to the hand (cm)"); axes[1].legend(fontsize=8)
+plt.tight_layout(); s3.close()"""),
+    md("""
 ## Try it
 - `SteerParams(escape_up=40)` — the policy tumbles; 20 cm/s is the most it takes.
 - `FlySimulation(agent, exposures=1)` — one snapshot per tick: the fly escapes from its own wing-beat jitter.

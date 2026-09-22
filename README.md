@@ -13,7 +13,7 @@ wiring into a running spiking brain on a single GPU, then gives it eyes and a bo
 | **M2 See & Move** | camera → flyvis optic lobe → LIF brain; descending neurons → motor commands (optomotor turn, looming escape) | ✅ done — 8 of 9 spec checks; the ninth is an appearance startle ([details](docs/03-see-and-move.md#5-results)) |
 | **M3 The Box** | MuJoCo room with two fly-brained flying bodies and a moving "hand"; they react to each other | ✅ done — 6/6 experiments ([details](docs/04-the-box.md#4-the-experiments)) |
 | **M4 flybody** | the brain steers Janelia's anatomical MuJoCo fly, flying on its own wings | ✅ done — 4/5 experiments; the optomotor drum fires the marginal giant fiber ([details](docs/05-flybody.md#3-the-experiments)) |
-| **M4b two flies** | two anatomical flies, two brains, one drum | ✅ done — [3/3](docs/05-flybody.md#4-two-flies-m4b); at fly scale they ignore each other (a fly subtends 15° at 2 cm) |
+| **M4b two flies** | two anatomical flies, two brains, one drum | ✅ done — [2/3](docs/05-flybody.md#4-two-flies-m4b): the hand experiment works per fly, hovering shows stray escapes in a third of trials; at fly scale the flies ignore each other (17° at 2 cm) |
 | M5 Real drone | the same brain flying a small drone in a room, reacting to you like a fly | next |
 
 ## Quick start

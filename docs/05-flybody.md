@@ -129,13 +129,34 @@ Two things had to be found on the way, and both are worth remembering:
 `uv run python scripts/validate_fly2.py`, 2026-09-22:
 
 ```
-RESULTS
+[hover x2]  run 0 fly 0: z 7.0..8.5 cm, |roll| max 3°, escapes 0, GF max 25 Hz -> ok
+[hover x2]  run 0 fly 1: z 7.0..8.2 cm, |roll| max 2°, escapes 0, GF max 25 Hz -> ok
+[hover x2]  run 1 fly 0: z 7.0..13.8 cm, |roll| max 55°, escapes 10, GF max 100 Hz -> x
+[hover x2]  run 1 fly 1: z 7.0..8.1 cm, |roll| max 3°, escapes 0, GF max 25 Hz -> ok
+[hover x2]  run 2 fly 0: z 7.0..11.9 cm, |roll| max 47°, escapes 6, GF max 175 Hz -> x
+[hover x2]  run 2 fly 1: z 7.0..8.0 cm, |roll| max 3°, escapes 0, GF max 0 Hz -> ok
+[speed]     two flies, two brains: 2.8 ticks/s
+    -> FAIL: two flies hover with their brains, no escape (4/6 fly-trials clean)
+[hand]      run 0: fly 0 escapes 41, first at 9.57 cm (hand 49°), rise 2.09 cm | fly 1 escapes 0 (hand stays 18.3 cm from it) -> ok
+[hand]      run 1: fly 0 escapes  4, first at 9.25 cm (hand 51°), rise 1.43 cm | fly 1 escapes 0 -> ok
+[hand]      run 2: fly 0 escapes  9, first at 8.69 cm (hand 55°), rise 1.43 cm | fly 1 escapes 0 -> ok
+    -> ok: hand → fly 0 escapes before contact, fly 1 never (3/3 runs)
+[fly-by]    visible: closest 2.0 cm (the other fly subtends ~17°); escapes 0, GF max 0 Hz, |yaw| max while < 3 cm 0.0
+[fly-by]    ghost:   closest 1.9 cm (the other fly subtends ~18°); escapes 0, GF max 0 Hz, |yaw| max while < 3 cm 0.0
+2/3 checks pass; failed: ['two flies hover with their brains, no escape (4/6 fly-trials clean)']
 ```
 
-- **Two brains, two flies.** Both hold their height within 2 cm over 1.5 s, attitude within 3°,
-  no escapes, at 2.1 ticks/s (two brains, two batched policy calls and two cubemaps per tick).
+- **Two brains, two flies, 2.8 ticks/s** (two brains, one batched policy call for both flies and
+  two cubemaps per tick). In four of six hovering fly-trials the fly holds its height within
+  1.5 cm and its attitude within 3°; in the other two it emits a stray escape, and *that* is
+  what breaks it: the hop rolls the fly 47–55°, the rolled view sweeps across the eye, the
+  giant fiber fires again, and it takes a second to settle. It is the same self-motion →
+  escape loop as M3 §5 and M4 §4 — one stray spike is enough because the escape is a 100 ms
+  full-authority manoeuvre, and nothing in the readout suppresses the next one. The check is
+  left as written; the rate (a third of fly-trials) is the result.
 - **The hand.** It waits on fly 0's side of the drum and visits fly 0 only; fly 0 escapes when
-  the fingertip subtends 46–48°, fly 1 never (the hand stays 14 cm from it). Getting this to
+  the fingertip subtends 49–55° and rises 1.4–2.1 cm, fly 1 never (3/3 runs; the hand stays
+  18 cm away from it). Getting this to
   mean anything took moving the flies 16 cm apart: at 8 cm the 4 cm hand *engulfed* fly 1 on its
   way to fly 0 (`hand_dist` 3.4 cm against a 4 cm radius), and fly 1 escaped from being inside
   a black ball — a geometry bug that read exactly like a brain result.
