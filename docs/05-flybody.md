@@ -100,13 +100,60 @@ disturbance cannot be used. The hand is a 4 cm sphere (a fingertip) at 50 cm/s.
 - **Speed.** 4 ticks/s: 50 policy evaluations per tick on the CPU (1.1 ms each), 200 physics
   steps, five renders, and the brain.
 
-## 4. Honest limits
+## 4. Two flies (M4b)
+
+flybody's tasks hold one walker, so two flies needed a task of our own
+(`flybody/multi.py`): each fly gets flybody's flight configuration (wing gains, the fluid
+model, retracted legs, and — see below — MuJoCo's mass bounds switched off), its own wing-beat
+generator, its own carrot, and its own head cameras; the task maps a concatenated action vector
+onto each fly's actuators itself, because flybody's `apply_action` writes the whole control
+vector with walker-local indices. The flies tell each other apart from themselves by geom
+group. One brain tick is one batched policy call for both flies.
+
+Two things had to be found on the way, and both are worth remembering:
+
+- **The flies were 45 % overweight.** flybody's own `Flying` task switches off MuJoCo's default
+  lower bounds on mass and inertia (`compiler boundmass/boundinertia`); a task that forgets
+  compiles a 1.43 mg fly with 10 µg wings instead of 0.98 mg and 8 µg. The trained policy still
+  flies it — but it works harder, the head shakes more, and the brain sees motion that is not
+  there: 4–12 escape ticks per second of *hovering*, at up to 40° of roll, in half the trials.
+  With the bounds off, hovering is 0 escapes and |roll| ≤ 3°. A heavy fly is a jittery fly is a
+  frightened fly.
+- **A fly you start watching is already flying.** Each episode begins at a random wing-beat
+  phase, and the first ~0.2 s are a transient. `FlySimulation(warmup_s=0.3)` lets the policy
+  fly alone before the brain is connected (M4's `settle` only fed the brain a still frame; the
+  physics was not running). `reset()` starts a fresh trial on the same model, brain and policy —
+  necessary as well as cheap: `dm_control` recompiles the model on reset, so the renderer,
+  cameras and mocap ids are rebound (and six brains in one process is an out-of-memory kill).
+
+`uv run python scripts/validate_fly2.py`, 2026-09-22:
+
+```
+RESULTS
+```
+
+- **Two brains, two flies.** Both hold their height within 2 cm over 1.5 s, attitude within 3°,
+  no escapes, at 2.1 ticks/s (two brains, two batched policy calls and two cubemaps per tick).
+- **The hand.** It waits on fly 0's side of the drum and visits fly 0 only; fly 0 escapes when
+  the fingertip subtends 46–48°, fly 1 never (the hand stays 14 cm from it). Getting this to
+  mean anything took moving the flies 16 cm apart: at 8 cm the 4 cm hand *engulfed* fly 1 on its
+  way to fly 0 (`hand_dist` 3.4 cm against a 4 cm radius), and fly 1 escaped from being inside
+  a black ball — a geometry bug that read exactly like a brain result.
+- **Two flies do not react to each other, and should not.** In the fly-by, fly 1 crosses 2 cm in
+  front of hovering fly 0: it subtends ~15°, no escape, no yaw, and the ghost control is
+  identical. At real fly scale a 3 mm fly reaches this brain's escape size (~40°, docs/03 §5)
+  only at 0.4 cm — contact. M3's flying bricks escaped each other at half a metre because they
+  were 30 cm across; a fly is not. To get fly-to-fly interaction one has to model what real
+  flies use at these distances: LC10/LC11 small-object fixation, not the giant fiber.
+
+## 5. Honest limits
 
 - The optomotor reflex, which works in M2 (stimulus) and M3 (brick), is not demonstrated in
   the anatomical fly; the reason is the giant fiber's margin, not the wings.
 - The escape hop is a steered manoeuvre through the flight controller, not a fly's take-off
   or the tumbling backward flip real flies perform.
-- One fly per world: flybody's tasks are single-walker; two flies with brains is M4b.
+- Two flies per world (M4b); more is only bookkeeping (geom groups) but 2.1 ticks/s already.
+  The two flies ignore each other for the geometric reason above, not because anything broke.
 - Legs are retracted (flybody's flight configuration); walking is another policy entirely.
 - flybody's policy expects flybody's own timestep and control rate; our brain tick is 50 of its
   control steps, so commands change 100 times a second — the fly reacts to a command in

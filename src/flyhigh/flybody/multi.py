@@ -34,7 +34,15 @@ def fly_name(i: int) -> str:
 
 
 def configure_for_flight(walker, arena) -> tuple[list, list, list]:
-    """What flybody's `Flying.__init__` does to one walker. Returns (wing joints, leg joints, leg springrefs)."""
+    """What flybody's `Flying.__init__` does to one walker. Returns (wing joints, leg joints, leg springrefs).
+
+    The first two lines matter more than they look: MuJoCo's default lower bounds on mass and
+    inertia make this fly 1.43 mg instead of 0.98 (and its wings 10 µg instead of 8), and the
+    trained policy flying a 45 %-too-heavy fly shakes its head enough for the brain to see
+    motion that is not there.
+    """
+    walker.mjcf_model.compiler.boundmass = 0.0
+    walker.mjcf_model.compiler.boundinertia = 0.0
     for i, dclass in enumerate(["yaw", "roll", "pitch"]):
         walker.mjcf_model.find("default", dclass).general.gainprm[0] = _WING_PARAMS["gainprm"][i]
     for geom in walker.mjcf_model.find_all("geom"):
@@ -175,7 +183,9 @@ class MultiFlyTask(composer.Task):
     def __init__(self, arena, wpg_path, n: int = 2, params: SteerParams | None = None, starts=None):
         self._arena = arena
         p = params or SteerParams()
-        starts = starts or [(-4.0 + 8.0 * i, (-1) ** i * 1.5, 7.0, 180.0 * (i % 2)) for i in range(n)]
+        # 16 cm apart, facing each other: far enough that the 4 cm hand can visit one fly without
+        # swallowing the other (at 8 cm its surface would be 4 cm from the second fly)
+        starts = starts or [(-8.0 + 16.0 * i, (-1) ** i * 1.5, 7.0, 180.0 * (i % 2)) for i in range(n)]
         self.flies = [Fly(i, arena, wpg_path, p, s[:3], s[3] if len(s) > 3 else 0.0) for i, s in enumerate(starts[:n])]
         for geom in arena.ground_geoms:
             geom.contype = 0

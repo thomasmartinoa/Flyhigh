@@ -38,6 +38,9 @@ def test_policy_loads_and_acts_on_the_task_observation(sim):
 
 
 def test_eye_sees_the_hand_where_it_is(sim):
+    """The panorama is head-fixed, as a fly's retina is: a bearing measured from the *body's*
+    heading reads a couple of degrees off while the head sits off the level attitude, and more
+    towards the periphery (~5° at 60°, ~12° at 120° -- see docs/05 §4). Checked out to 60°."""
     import mujoco
 
     m, d = sim.physics.model.ptr, sim.physics.data.ptr
@@ -45,11 +48,17 @@ def test_eye_sees_the_hand_where_it_is(sim):
     mujoco.mj_forward(m, d)
     empty = sim.frames()[0].lum
     for az, el in ((0, 0), (60, 0), (-60, 10)):
-        d.mocap_pos[sim.hand.mocap_id] = sim.pos + 10.0 * bearing_to_direction(az, el)
+        # the bearing is relative to the fly's heading, and a hovering fly drifts a few degrees
+        psi = np.radians(sim.yaw_deg)
+        rot = np.array([[np.cos(psi), -np.sin(psi), 0], [np.sin(psi), np.cos(psi), 0], [0, 0, 1]])
+        d.mocap_pos[sim.hand.mocap_id] = sim.pos + 10.0 * (rot @ bearing_to_direction(az, el))
         mujoco.mj_forward(m, d)
         f = sim.frames()[0]
-        rows, cols = np.nonzero(np.abs(f.lum - empty) > 0.1)  # the hand's disc, whatever its shading
-        assert abs(f.az_deg[cols].mean() - az) < 4 and abs(f.el_deg[rows].mean() - el) < 4
+        # the ball itself (near-black against a grey wall), not the softer shadow it casts
+        rows, cols = np.nonzero(f.lum - empty < -0.3)
+        w = (empty - f.lum)[rows, cols]  # weight by how much darker: the ball, not its penumbra
+        assert abs(np.average(f.az_deg[cols], weights=w) - az) < 6
+        assert abs(np.average(f.el_deg[rows], weights=w) - el) < 6
     d.mocap_pos[sim.hand.mocap_id] = sim.hand.home
     mujoco.mj_forward(m, d)
 

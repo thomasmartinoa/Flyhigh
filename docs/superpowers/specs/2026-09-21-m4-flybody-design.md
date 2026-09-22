@@ -91,5 +91,6 @@ is the point of M4. Two flybody flies in one world is M4b.
 
 ## Out of scope
 
-Walking (the walking policy exists; legs are retracted in flight), two flybody flies, learned
-steering, the vision policies (they replace our brain).
+Walking (the walking policy exists; legs are retracted in flight), learned steering, the vision
+policies (they replace our brain). *(Two flybody flies were in scope for M4b and are done:
+`flybody/multi.py`, `scripts/validate_fly2.py`, docs/05 §4.)*

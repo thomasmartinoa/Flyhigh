@@ -13,6 +13,7 @@ wiring into a running spiking brain on a single GPU, then gives it eyes and a bo
 | **M2 See & Move** | camera → flyvis optic lobe → LIF brain; descending neurons → motor commands (optomotor turn, looming escape) | ✅ done — 8 of 9 spec checks; the ninth is an appearance startle ([details](docs/03-see-and-move.md#5-results)) |
 | **M3 The Box** | MuJoCo room with two fly-brained flying bodies and a moving "hand"; they react to each other | ✅ done — 6/6 experiments ([details](docs/04-the-box.md#4-the-experiments)) |
 | **M4 flybody** | the brain steers Janelia's anatomical MuJoCo fly, flying on its own wings | ✅ done — 4/5 experiments; the optomotor drum fires the marginal giant fiber ([details](docs/05-flybody.md#3-the-experiments)) |
+| **M4b two flies** | two anatomical flies, two brains, one drum | ✅ done — [3/3](docs/05-flybody.md#4-two-flies-m4b); at fly scale they ignore each other (a fly subtends 15° at 2 cm) |
 | M5 Real drone | the same brain flying a small drone in a room, reacting to you like a fly | next |
 
 ## Quick start
@@ -30,6 +31,7 @@ uv run python scripts/build_alignment.py     # M2: flyvis columns ↔ male-CNS c
 uv run python scripts/validate_reflexes.py   # M2: silence, escape, optomotor, two agents, speed
 uv run python scripts/validate_box.py        # M3: hover, hand → escape, optomotor in a body, two flies, speed
 uv run python scripts/validate_fly.py        # M4: flybody steering, hover, hand → escape, optomotor, speed
+uv run python scripts/validate_fly2.py       # M4b: two flybody flies, two brains, one drum
 uv run jupyter lab notebooks/                # 01 connectome, 02 brain, 03 see & move, 04 the box, 05 flybody
 ```
 
@@ -84,7 +86,7 @@ src/flyhigh/agent.py   FlyAgent.tick(frames) → commands   (the closed loop, ba
 src/flyhigh/world/     scene.py, eyes.py   (the MuJoCo drum, hand and bodies; cubemap eyes → PanoramicFrame)
 src/flyhigh/body/      brick.py, hand.py   (MotorCommand → forces; the scripted hand)
 src/flyhigh/sim.py     Simulation.run(seconds) → log; VideoWriter   (render → brain → body → physics)
-src/flyhigh/flybody/   policy.py, arena.py, task.py, sim.py   (flybody's fly: TF flight policy, fly-scale drum, steered task, loop)
+src/flyhigh/flybody/   policy.py, arena.py, task.py, multi.py, sim.py   (flybody's flies: TF flight policy, fly-scale drum, steering, multi-fly task, loop)
 scripts/               validate_*.py, build_alignment.py, calibrate_bridge.py, benchmark.py, build_notebooks.py
 tests/                 pytest, synthetic fixtures; real-data tests skipped without data/raw
 docs/, notebooks/      learning track

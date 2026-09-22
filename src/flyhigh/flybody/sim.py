@@ -16,6 +16,7 @@ from flyhigh.flybody.arena import DrumParams, FlyDrum
 from flyhigh.flybody.multi import MultiFlyTask
 from flyhigh.flybody.policy import DEFAULT_PATH, FlightPolicy
 from flyhigh.flybody.task import SteerParams, yaw_quat
+from flyhigh.motor.command import MotorCommand
 from flyhigh.senses.frame import TICK_MS, PanoramicFrame
 from flyhigh.world.eyes import CubemapPanorama
 from flyhigh.world.scene import FACES
@@ -29,51 +30,62 @@ class FlySimulation:
 
     def __init__(self, agent, n_agents: int = 1, drum: DrumParams | None = None, steer: SteerParams | None = None,
                  face_px: int = 96, policy_path=DEFAULT_PATH, wpg_path=WPG_PATH, settle_s: float = 0.5,
-                 exposures: int = 5, starts=None):
+                 exposures: int = 5, starts=None, warmup_s: float = 0.3, seed: int | None = 0):
         """`exposures`: sub-frames averaged into each tick's panorama. The head bobs ~2° with
         every wing beat (218 Hz); a single snapshot per 10 ms tick aliases that into motion the
-        brain escapes from. Photoreceptors integrate over about a tick; so does this."""
+        brain escapes from. Photoreceptors integrate over about a tick; so does this.
+        `warmup_s`: the policy flies the fly alone for this long before the brain is connected.
+        Each episode starts at a random wing-beat phase and the first ~0.2 s are a transient
+        (roll up to 40°); a fly you start watching is already flying.
+        `seed`: the episode's random state (the wing phase); None for a fresh one each run."""
         assert 1 <= n_agents <= 2, "eyes tell flies apart by geom group; groups 1 and 2 are available"
         self.agent, self.n_agents = agent, n_agents
         self.drum = drum or DrumParams()
         self.steer = steer or SteerParams()
         self.task = MultiFlyTask(FlyDrum(self.drum), wpg_path, n_agents, self.steer, starts)
-        self.env = composer.Environment(task=self.task, time_limit=1e5, strip_singleton_obs_buffer_dim=True)
+        self.env = composer.Environment(task=self.task, time_limit=1e5, strip_singleton_obs_buffer_dim=True,
+                                        random_state=np.random.RandomState(seed))
         self.ts = self.env.reset()
         self.physics = self.env.physics
         self.policy = FlightPolicy(policy_path)
-        m = self.physics.model.ptr
-        self.renderer = mujoco.Renderer(m, face_px, face_px)
-        # each fly's visible (mesh) geoms get their own group so its eyes can skip its own body
-        self._groups = []
-        for i, f in enumerate(self.task.flies):
-            for g in range(m.ngeom):
-                name = mujoco.mj_id2name(m, mujoco.mjtObj.mjOBJ_GEOM, g) or ""
-                if name.startswith(f.name + "/") and m.geom_group[g] == 1:
-                    m.geom_group[g] = 1 + i
-            self._groups.append(1 + i)
-        self.eyes = []
-        for i, f in enumerate(self.task.flies):
-            frame = self._orient_eyes(f)
-            self.eyes.append(CubemapPanorama(m, face_px=face_px, eye_frame=frame,
-                                             cam_names={face: f"{f.name}/cube_{face}" for face in FACES},
-                                             hide_groups=(1 + i, *HIDDEN_GROUPS)))
-        mujoco.mj_forward(m, self.physics.data.ptr)
-        self.hand = Hand(m, self.physics.data.ptr, name="hand", speed=50.0, stop_short=2.0)
+        self.face_px = face_px
+        self.renderer = None
+        self._bind_model()
         self.policy_per_tick = round(TICK_MS / 1000 / self.env.control_timestep())
         self.exposures = exposures
         self._accum = None
         self.tick = 0
         self.spin_drum = 0.0  # °/s, + = clockwise seen from above (the scene moves right-to-left ahead)
         self._drum_angle = 0.0
-        self._drum_mocap = int(m.body_mocapid[mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_BODY, "drum")])
         self.rows: list[dict] = []
         self.last_frames: list[PanoramicFrame] = []
         self.last_commands = []
         self.actions = np.zeros(self.env.action_spec().shape)
         ro = getattr(agent, "readout", None)
         self._ids = {} if ro is None else {"gf": ro.gf, "hs_l": ro.hs_l, "hs_r": ro.hs_r}
+        self.warmup(warmup_s)
         self.settle(settle_s)
+
+    def _bind_model(self) -> None:
+        """(Re-)attach renderer, eyes, hand and drum to the current compiled model. `env.reset()`
+        recompiles, so everything holding a model pointer or an id must be rebuilt."""
+        m = self.physics.model.ptr
+        if self.renderer is not None:
+            self.renderer.close()
+        self.renderer = mujoco.Renderer(m, self.face_px, self.face_px)
+        # each fly's visible (mesh) geoms get their own group so its eyes can skip its own body
+        for i, f in enumerate(self.task.flies):
+            for g in range(m.ngeom):
+                name = mujoco.mj_id2name(m, mujoco.mjtObj.mjOBJ_GEOM, g) or ""
+                if name.startswith(f.name + "/") and m.geom_group[g] == 1:
+                    m.geom_group[g] = 1 + i
+        self.eyes = [CubemapPanorama(m, face_px=self.face_px, eye_frame=self._orient_eyes(f),
+                                     cam_names={face: f"{f.name}/cube_{face}" for face in FACES},
+                                     hide_groups=(1 + i, *HIDDEN_GROUPS))
+                     for i, f in enumerate(self.task.flies)]
+        mujoco.mj_forward(m, self.physics.data.ptr)
+        self.hand = Hand(m, self.physics.data.ptr, name="hand", speed=50.0, stop_short=2.0)
+        self._drum_mocap = int(m.body_mocapid[mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_BODY, "drum")])
 
     def _orient_eyes(self, fly) -> np.ndarray:
         """Point a fly's head cameras as the M3 faces are defined -- image axes in the fly's *level
@@ -124,6 +136,14 @@ class FlySimulation:
         return self.roll_pitch_of(0)
 
     # -------------------------------------------------------------- stepping
+    def warmup(self, seconds: float) -> None:
+        """Let the policy fly the flies alone (hover command) until the start transient is over."""
+        for f in self.task.flies:
+            f.carrot.set_command(MotorCommand.idle(0.0), TICK_MS)
+        for _ in range(round(seconds * 1000 / self.env.control_timestep() / 1000)):
+            self.actions = self.policy.batch(self._observations()).ravel()
+            self.ts = self.env.step(self.actions)
+
     def settle(self, seconds: float) -> None:
         frames = self.frames()
         for _ in range(round(seconds * 1000 / TICK_MS)):
@@ -169,6 +189,20 @@ class FlySimulation:
         self.last_commands = cmds
         self._log(cmds)
         return cmds
+
+    def reset(self, warmup_s: float = 0.3, settle_s: float = 0.5) -> None:
+        """A fresh episode (new wing-beat phase, flies back at their starts) on the same model,
+        brain and policy -- a new trial without paying for a second brain."""
+        self.ts = self.env.reset()
+        self.physics = self.env.physics
+        self._bind_model()
+        self.spin_drum = 0.0
+        self._drum_angle = 0.0
+        self._accum = None
+        self.tick = 0
+        self.rows.clear()
+        self.warmup(warmup_s)
+        self.settle(settle_s)
 
     def run(self, seconds: float, on_tick=None) -> pl.DataFrame:
         for _ in range(round(seconds * 1000 / TICK_MS)):
