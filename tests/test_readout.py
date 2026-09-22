@@ -67,3 +67,19 @@ def test_readout_tolerates_missing_types():
     ro = Readout(c)  # no DN types at all
     assert ro.watch.size == 0
     assert ro.command(np.zeros(2)) == MotorCommand.idle(P.forward_bias)
+
+
+def test_escape_refractory_suppresses_a_cascade_but_not_the_first_escape():
+    ro = Readout(readout_connectome(), ReadoutParams(escape_refractory_ms=100.0))
+    loud = np.zeros((1, 8)); loud[0, 0] = 100.0  # the giant fiber keeps firing
+    assert ro.commands(loud, dt_ms=10.0)[0].escape is True
+    for _ in range(10):  # 100 ms of refractory: no second escape, and the other channels still work
+        cmd = ro.commands(loud, dt_ms=10.0)[0]
+        assert cmd.escape is False and cmd.forward == pytest.approx(P.forward_bias)
+    assert ro.commands(loud, dt_ms=10.0)[0].escape is True  # 100 ms later it may fire again
+
+
+def test_without_a_refractory_the_escape_repeats_every_tick():
+    ro = Readout(readout_connectome())
+    loud = np.zeros((1, 8)); loud[0, 0] = 100.0
+    assert all(ro.commands(loud)[0].escape for _ in range(5))

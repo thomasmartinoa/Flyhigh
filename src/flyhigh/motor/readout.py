@@ -30,6 +30,7 @@ class ReadoutParams:
     k_fwd: float = 0.005
     forward_bias: float = 0.2
     eps_hz: float = 5.0  # keeps (R-L)/(R+L) quiet when both sides barely fire
+    escape_refractory_ms: float = 0.0  # ignore the escape channel for this long after an escape
 
 
 def escape_channel(gf_hz, dnp04_hz, p: ReadoutParams) -> bool:
@@ -55,6 +56,7 @@ def forward_channel(dnp09_hz, escape: bool, p: ReadoutParams) -> float:
 class Readout:
     def __init__(self, connectome: Connectome, params: ReadoutParams | None = None):
         self.p = params or ReadoutParams()
+        self._escape_block_ms: list[float] = []  # per agent, time left on the escape refractory
         side = connectome.neurons["side"].to_numpy()
 
         def ids(pattern, s=None):
@@ -75,12 +77,13 @@ class Readout:
     def _mean(rates, idx):
         return float(rates[idx].mean()) if len(idx) else 0.0
 
-    def command(self, rates: np.ndarray) -> MotorCommand:
-        """rates: (N,) Hz for every neuron (only `watch` is read)."""
+    def command(self, rates: np.ndarray, blocked: bool = False) -> MotorCommand:
+        """rates: (N,) Hz for every neuron (only `watch` is read).
+        `blocked`: the escape channel is refractory, so report no escape whatever the GF does."""
         def m(idx):
             return self._mean(rates, idx)
 
-        escape = escape_channel(m(self.gf), m(self.dnp04), self.p)
+        escape = False if blocked else escape_channel(m(self.gf), m(self.dnp04), self.p)
         return MotorCommand(
             forward=forward_channel(m(self.dnp09), escape, self.p),
             yaw=0.0 if escape else yaw_channel(m(self.dna_l), m(self.dna_r), m(self.hs_l), m(self.hs_r), self.p),
@@ -88,6 +91,21 @@ class Readout:
             escape=escape,
         )
 
-    def commands(self, rates: np.ndarray) -> list[MotorCommand]:
-        """rates: (n_agents, N)."""
-        return [self.command(r) for r in rates]
+    def commands(self, rates: np.ndarray, dt_ms: float = 10.0) -> list[MotorCommand]:
+        """rates: (n_agents, N); `dt_ms`: time since the last call (one tick).
+
+        With `escape_refractory_ms` > 0 an escape silences the channel for that long -- the
+        escape is a 100 ms full-authority manoeuvre, and without a refractory one stray giant-fiber
+        spike cascades: the body's own motion re-fires the detector (docs/04 §5, docs/05 §4).
+        Default 0 keeps the reflex exactly as validated in M2-M4b."""
+        while len(self._escape_block_ms) < len(rates):
+            self._escape_block_ms.append(0.0)
+        out = []
+        for i, r in enumerate(rates):
+            blocked = self._escape_block_ms[i] > 0
+            self._escape_block_ms[i] = max(0.0, self._escape_block_ms[i] - dt_ms)
+            cmd = self.command(r, blocked=blocked)
+            if cmd.escape:
+                self._escape_block_ms[i] = self.p.escape_refractory_ms
+            out.append(cmd)
+        return out
